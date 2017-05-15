@@ -1,0 +1,316 @@
+<?xml version='1.0' encoding='utf-8'?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+ <modelVersion>4.0.0</modelVersion>
+ 
+ <groupId>com.github.drinkjava2</groupId>
+ <artifactId>hibcore</artifactId>
+ <version>1.0.0</version>
+ <packaging>jar</packaging> 
+ 
+ <name>hibcore</name>
+ <description>hibcore is a project from study Hibernate only</description>
+ <url>https://github.com/drinkjava2/hibcore</url>
+  
+ <issueManagement>
+    <system>Github Issue</system>
+    <url>https://github.com/drinkjava2/hibcore/issues</url>
+ </issueManagement>
+
+ <licenses>
+   <license>
+     <!-- The reason use LGPL is this project has very close relationship with Hibernate project which use LGPL--> 
+     <name>GNU LESSER GENERAL PUBLIC LICENSE (LGPL), Version 2.1</name>
+     <url>http://www.gnu.org/licenses/lgpl-2.1.html</url>
+   </license>
+ </licenses>
+
+ <developers>
+   <developer>
+     <name>Yong Zhu</name>
+     <email>yong9981@gmail.com</email>
+     <url>https://github.com/drinkjava2/</url>
+   </developer>
+ </developers>
+
+ <scm>
+   <connection>scm:git@github.com:drinkjava2/hibcore.git</connection>
+   <developerConnection>scm:git@github.com:drinkjava2/hibcore.git</developerConnection>
+   <url>git@github.com:drinkjava2/hibcore.git</url>
+ </scm>
+
+
+    <properties>
+      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <maven.compiler.encoding>UTF-8</maven.compiler.encoding> 
+		<!-- require JDK1.8 -->
+        <version.java>1.8</version.java>
+        <version.javadoc>8</version.javadoc>
+        <version.compiler-plugin>3.3</version.compiler-plugin>
+        <version.war-plugin>2.6</version.war-plugin>
+        <version.clean-plugin>3.0.0</version.clean-plugin>
+        <version.resources-plugin>2.7</version.resources-plugin>
+        <version.surefire-plugin>2.19</version.surefire-plugin>
+        <version.jar-plugin>2.6</version.jar-plugin>
+        <version.source-plugin>2.4</version.source-plugin>
+        <version.javadoc-plugin>2.10.3</version.javadoc-plugin>
+        <version.gpg-plugin>1.6</version.gpg-plugin>
+    </properties>
+
+   <repositories>
+	 <!-- To download snapshot version jars from Maven site, it's necessary to add this repository  -->
+     <repository>
+       <id>oss</id>
+       <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+     </repository>
+   </repositories>
+
+ <dependencies>
+ 
+ <dependency>
+    <groupId>org.apache.ant</groupId>
+    <artifactId>ant</artifactId>
+    <version>1.10.1</version>
+</dependency> 
+ 
+ <dependency>
+    <groupId>javax.security.jacc</groupId>
+    <artifactId>javax.security.jacc-api</artifactId>
+    <version>1.5</version>
+</dependency>
+ 
+ <dependency>
+    <groupId>javax.enterprise</groupId>
+    <artifactId>cdi-api</artifactId>
+    <version>2.0-PFD2</version>
+</dependency>
+
+ <dependency>
+    <groupId>org.jboss.logging</groupId>
+    <artifactId>jboss-logging-annotations</artifactId>
+    <version>2.0.2.Final</version>
+</dependency>
+
+ <dependency>
+    <groupId>javax.validation</groupId>
+    <artifactId>validation-api</artifactId>
+    <version>1.1.0.Final</version>
+</dependency>
+  
+ <dependency>
+    <groupId>net.bytebuddy</groupId>
+    <artifactId>byte-buddy</artifactId>
+    <version>1.6.14</version>
+</dependency>
+   
+   
+ 
+    <!-- Hibernate core project dependent hibernate libs-->   
+    <!--dependency>
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-core</artifactId>
+      <version>5.2.9.Final</version>
+    </dependency--> 
+    
+     <dependency>
+      <groupId>org.jboss.logging</groupId>
+      <artifactId>jboss-logging</artifactId>
+      <version>3.3.0.Final</version>
+    </dependency>
+    <dependency>
+      <groupId>org.hibernate.javax.persistence</groupId>
+      <artifactId>hibernate-jpa-2.1-api</artifactId>
+      <version>1.0.0.Final</version>
+    </dependency>
+    <dependency>
+      <groupId>org.javassist</groupId>
+      <artifactId>javassist</artifactId>
+      <version>3.20.0-GA</version>
+    </dependency>
+    <dependency>
+      <groupId>antlr</groupId>
+      <artifactId>antlr</artifactId>
+      <version>2.7.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.spec.javax.transaction</groupId>
+      <artifactId>jboss-transaction-api_1.2_spec</artifactId>
+      <version>1.0.1.Final</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss</groupId>
+      <artifactId>jandex</artifactId>
+      <version>2.0.3.Final</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml</groupId>
+      <artifactId>classmate</artifactId>
+      <version>1.3.0</version>
+    </dependency>
+    <dependency>
+      <groupId>dom4j</groupId>
+      <artifactId>dom4j</artifactId>
+      <version>1.6.1</version>
+      <exclusions>
+        <exclusion>
+          <artifactId>*</artifactId>
+          <groupId>*</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.hibernate.common</groupId>
+      <artifactId>hibernate-commons-annotations</artifactId>
+      <version>5.0.1.Final</version>
+    </dependency> 
+</dependencies> 
+ 
+ <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${version.compiler-plugin}</version>
+                <configuration>
+                    <source>${version.java}</source>
+                    <target>${version.java}</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>${version.jar-plugin}</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>${version.war-plugin}</version>
+                <configuration>
+                 <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>${version.clean-plugin}</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>${version.resources-plugin}</version>
+            </plugin>
+			<!-- Surefire is a plugin for unit test-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${version.surefire-plugin}</version>
+            </plugin>
+        </plugins>
+    </build>
+	
+ 
+    <profiles> 
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>${version.source-plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <attach>true</attach>
+                            <encoding>UTF-8</encoding>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${version.javadoc-plugin}</version>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <links>
+                                <link>http://docs.oracle.com/javase/${version.javadoc}/docs/api</link>
+                            </links>
+							<additionalparam>-Xdoclint:none</additionalparam>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${version.gpg-plugin}</version>
+                        <executions>
+                            <execution>
+                                <phase>install</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+            <distributionManagement>
+			   <!-- Release, if is offical verison, will release to centre lib, if is "-SNAPSHOT" version, 
+			        will release to sanpshot site, but they use same command:
+					"mvn clean deploy -P release -Dgpg.passphrase=yourGPGpwd"
+			   -->	
+              <snapshotRepository>
+                 <id>oss</id>
+                 <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+              </snapshotRepository>
+              <repository>
+                 <id>oss</id>
+                 <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+              </repository>
+           </distributionManagement>
+        </profile>
+		
+		<!-- If want release to private or company server, can take a look this releaseLocal profile -->
+        <profile>
+            <id>releaseLocal</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>${version.source-plugin}</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <attach>true</attach>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+            <distributionManagement>
+                <repository>
+                    <id>nexus-197</id>
+                    <url>http://192.168.1.197:8081/content/repositories/releases</url>
+                </repository>
+            </distributionManagement>
+        </profile>
+    </profiles> 
+</project>
