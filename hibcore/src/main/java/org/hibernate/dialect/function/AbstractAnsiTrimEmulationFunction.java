@@ -25,6 +25,7 @@ import org.hibernate.type.Type;
  *
  * @author Steve Ebersole
  */
+@SuppressWarnings("all")
 public abstract class AbstractAnsiTrimEmulationFunction implements SQLFunction {
 	@Override
 	public final boolean hasArguments() {

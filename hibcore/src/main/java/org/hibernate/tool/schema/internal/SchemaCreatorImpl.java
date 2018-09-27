@@ -162,7 +162,7 @@ public class SchemaCreatorImpl implements SchemaCreator {
 				createFromScript( sourceDescriptor.getScriptSourceInput(), commandExtractor, formatter, options, targets );
 				break;
 			}
-			case METADATA: {
+			case METADATA: { 
 				createFromMetadata( metadata, options, dialect, formatter, targets );
 				break;
 			}
@@ -223,7 +223,6 @@ public class SchemaCreatorImpl implements SchemaCreator {
 		if ( tryToCreateCatalogs || tryToCreateSchemas ) {
 			Set<Identifier> exportedCatalogs = new HashSet<Identifier>();
 			for ( Namespace namespace : database.getNamespaces() ) {
-
 				if ( !schemaFilter.includeNamespace( namespace ) ) {
 					continue;
 				}
@@ -275,18 +274,16 @@ public class SchemaCreatorImpl implements SchemaCreator {
 		}
 
 		// then, create all schema objects (tables, sequences, constraints, etc) in each schema
-		for ( Namespace namespace : database.getNamespaces() ) {
-
-			if ( !schemaFilter.includeNamespace( namespace ) ) {
+ 		for ( Namespace namespace : database.getNamespaces() ) {
+ 			if ( !schemaFilter.includeNamespace( namespace ) ) {
 				continue;
-			}
-
-			// sequences
-			for ( Sequence sequence : namespace.getSequences() ) {
+			} 
+			// sequences 
+			for ( Sequence sequence : namespace.getSequences() ) { 
 				if ( !schemaFilter.includeSequence( sequence ) ) {
 					continue;
-				}
-				checkExportIdentifier( sequence, exportIdentifiers );
+				} 
+				checkExportIdentifier( sequence, exportIdentifiers ); 
 				applySqlStrings(
 						dialect.getSequenceExporter().getSqlCreateStrings(
 								sequence,

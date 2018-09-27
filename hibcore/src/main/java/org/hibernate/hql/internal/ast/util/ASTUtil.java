@@ -23,6 +23,7 @@ import antlr.collections.impl.ASTArray;
  * @author Joshua Davis
  * @author Steve Ebersole
  */
+@SuppressWarnings("all")
 public final class ASTUtil {
 	/**
 	 * Disallow instantiation.

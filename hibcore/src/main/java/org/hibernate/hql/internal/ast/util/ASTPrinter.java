@@ -23,6 +23,7 @@ import antlr.collections.AST;
  * @author Joshua Davis
  * @author Steve Ebersole
  */
+@SuppressWarnings("all")
 public class ASTPrinter {
 	private final Map tokenTypeNameCache;
 	private final boolean showClassNames;

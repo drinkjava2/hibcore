@@ -16,6 +16,7 @@ import org.hibernate.query.criteria.internal.CriteriaBuilderImpl;
  *
  * @author Steve Ebersole
  */
+@SuppressWarnings("all")
 public class AbsFunction<N extends Number>
 		extends ParameterizedFunctionExpression<N>
 		implements Serializable {

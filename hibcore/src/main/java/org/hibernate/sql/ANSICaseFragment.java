@@ -14,6 +14,7 @@ import java.util.Map;
  * @author Gavin King
  * @author Simon Harris
  */
+@SuppressWarnings("all")
 public class ANSICaseFragment extends CaseFragment {
 
 	@Override
