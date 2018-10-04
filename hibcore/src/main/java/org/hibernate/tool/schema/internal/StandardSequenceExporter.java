@@ -24,7 +24,7 @@ public class StandardSequenceExporter implements Exporter<Sequence> {
 
 	@Override
 	public String[] getSqlCreateStrings(Sequence sequence, Metadata metadata) {
-		final JdbcEnvironment jdbcEnvironment = metadata.getDatabase().getJdbcEnvironment(); 
+		final JdbcEnvironment jdbcEnvironment = metadata.getDatabase().getJdbcEnvironment();
 		return dialect.getCreateSequenceStrings(
 				jdbcEnvironment.getQualifiedObjectNameFormatter().format(
 						sequence.getName(),

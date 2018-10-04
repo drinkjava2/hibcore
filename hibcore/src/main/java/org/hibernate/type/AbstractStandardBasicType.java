@@ -39,7 +39,7 @@ public abstract class AbstractStandardBasicType<T>
 	private static final Size DEFAULT_SIZE = new Size( 19, 2, 255, Size.LobMultiplier.NONE ); // to match legacy behavior
 	private final Size dictatedSize = new Size();
 
-	// Don't use final here.  Need to initialize afterQuery-the-fact
+	// Don't use final here.  Need to initialize after-the-fact
 	// by DynamicParameterizedTypes.
 	private SqlTypeDescriptor sqlTypeDescriptor;
 	private JavaTypeDescriptor<T> javaTypeDescriptor;
@@ -71,10 +71,11 @@ public abstract class AbstractStandardBasicType<T>
 	}
 
 	protected T getReplacement(T original, T target, SharedSessionContractImplementor session) {
-		if ( !isMutable() ) {
-			return original;
+		if ( original == LazyPropertyInitializer.UNFETCHED_PROPERTY ) {
+			return target;
 		}
-		else if ( isEqual( original, target ) ) {
+		else if ( !isMutable() ||
+					( target != LazyPropertyInitializer.UNFETCHED_PROPERTY && isEqual( original, target ) ) ) {
 			return original;
 		}
 		else {
@@ -90,7 +91,7 @@ public abstract class AbstractStandardBasicType<T>
 	@Override
 	public String[] getRegistrationKeys() {
 		return registerUnderJavaType()
-				? new String[] { getName(), javaTypeDescriptor.getJavaTypeClass().getName() }
+				? new String[] { getName(), javaTypeDescriptor.getJavaType().getName() }
 				: new String[] { getName() };
 	}
 
@@ -105,13 +106,13 @@ public abstract class AbstractStandardBasicType<T>
 	protected Size getDictatedSize() {
 		return dictatedSize;
 	}
-	
+
 	// final implementations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 	public final JavaTypeDescriptor<T> getJavaTypeDescriptor() {
 		return javaTypeDescriptor;
 	}
-	
+
 	public final void setJavaTypeDescriptor( JavaTypeDescriptor<T> javaTypeDescriptor ) {
 		this.javaTypeDescriptor = javaTypeDescriptor;
 	}
@@ -127,7 +128,7 @@ public abstract class AbstractStandardBasicType<T>
 
 	@Override
 	public final Class getReturnedClass() {
-		return javaTypeDescriptor.getJavaTypeClass();
+		return javaTypeDescriptor.getJavaType();
 	}
 
 	@Override

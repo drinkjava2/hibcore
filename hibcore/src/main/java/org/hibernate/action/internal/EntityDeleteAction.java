@@ -10,7 +10,7 @@ import java.io.Serializable;
 
 import org.hibernate.AssertionFailure;
 import org.hibernate.HibernateException;
-import org.hibernate.cache.spi.access.EntityRegionAccessStrategy;
+import org.hibernate.cache.spi.access.EntityDataAccess;
 import org.hibernate.cache.spi.access.SoftLock;
 import org.hibernate.engine.spi.EntityEntry;
 import org.hibernate.engine.spi.PersistenceContext;
@@ -60,7 +60,7 @@ public class EntityDeleteAction extends EntityAction {
 		this.isCascadeDeleteEnabled = isCascadeDeleteEnabled;
 		this.state = state;
 
-		// beforeQuery remove we need to remove the local (transactional) natural id cross-reference
+		// before remove we need to remove the local (transactional) natural id cross-reference
 		naturalIdValues = session.getPersistenceContext().getNaturalIdHelper().removeLocalNaturalIdCrossReference(
 				getPersister(),
 				getId(),
@@ -86,8 +86,8 @@ public class EntityDeleteAction extends EntityAction {
 		}
 
 		final Object ck;
-		if ( persister.hasCache() ) {
-			final EntityRegionAccessStrategy cache = persister.getCacheAccessStrategy();
+		if ( persister.canWriteToCache() ) {
+			final EntityDataAccess cache = persister.getCacheAccessStrategy();
 			ck = cache.generateCacheKey( id, persister, session.getFactory(), session.getTenantIdentifier() );
 			lock = cache.lockItem( session, ck, version );
 		}
@@ -113,7 +113,7 @@ public class EntityDeleteAction extends EntityAction {
 		persistenceContext.removeEntity( entry.getEntityKey() );
 		persistenceContext.removeProxy( entry.getEntityKey() );
 		
-		if ( persister.hasCache() ) {
+		if ( persister.canWriteToCache() ) {
 			persister.getCacheAccessStrategy().remove( session, ck);
 		}
 
@@ -187,8 +187,8 @@ public class EntityDeleteAction extends EntityAction {
 	@Override
 	public void doAfterTransactionCompletion(boolean success, SharedSessionContractImplementor session) throws HibernateException {
 		EntityPersister entityPersister = getPersister();
-		if ( entityPersister.hasCache() ) {
-			EntityRegionAccessStrategy cache = entityPersister.getCacheAccessStrategy();
+		if ( entityPersister.canWriteToCache() ) {
+			EntityDataAccess cache = entityPersister.getCacheAccessStrategy();
 			final Object ck = cache.generateCacheKey(
 					getId(),
 					entityPersister,
@@ -204,7 +204,7 @@ public class EntityDeleteAction extends EntityAction {
 	protected boolean hasPostCommitEventListeners() {
 		final EventListenerGroup<PostDeleteEventListener> group = listenerGroup( EventType.POST_COMMIT_DELETE );
 		for ( PostDeleteEventListener listener : group.listeners() ) {
-			if ( listener.requiresPostCommitHanding( getPersister() ) ) {
+			if ( listener.requiresPostCommitHandling( getPersister() ) ) {
 				return true;
 			}
 		}

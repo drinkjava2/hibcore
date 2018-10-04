@@ -18,23 +18,19 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.persistence.PersistenceException;
 import javax.persistence.spi.PersistenceUnitTransactionType;
-import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamSource;
-import javax.xml.validation.Schema;
-import javax.xml.validation.SchemaFactory;
 import javax.xml.validation.Validator;
 
 import org.hibernate.boot.archive.internal.ArchiveHelper;
 import org.hibernate.boot.registry.classloading.internal.ClassLoaderServiceImpl;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
+import org.hibernate.boot.xsd.ConfigXsdSupport;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.internal.EntityManagerMessageLogger;
 import org.hibernate.internal.util.StringHelper;
-import org.hibernate.internal.util.xml.XsdException;
 import org.hibernate.jpa.internal.util.ConfigurationHelper;
 
 import org.w3c.dom.Document;
@@ -68,8 +64,8 @@ public class PersistenceXmlParser {
 				ClassLoaderServiceImpl.fromConfigSettings( integration ),
 				PersistenceUnitTransactionType.RESOURCE_LOCAL
 		);
-
-		return new ArrayList<>( parser.doResolve( integration ).values() );
+		parser.doResolve( integration );
+		return new ArrayList<>( parser.persistenceUnits.values() );
 	}
 
 	/**
@@ -118,10 +114,11 @@ public class PersistenceXmlParser {
 				transactionType
 		);
 
-		final Map<String,ParsedPersistenceXmlDescriptor> persistenceUnits = parser.parsePersistenceXml( persistenceXmlUrl, integration );
-		assert persistenceUnits.size() == 1;
+		parser.parsePersistenceXml( persistenceXmlUrl, integration );
 
-		return persistenceUnits.values().iterator().next();
+		assert parser.persistenceUnits.size() == 1;
+
+		return parser.persistenceUnits.values().iterator().next();
 	}
 
 	/**
@@ -173,10 +170,10 @@ public class PersistenceXmlParser {
 				transactionType
 		);
 
-		final Map<String,ParsedPersistenceXmlDescriptor> persistenceUnits = parser.parsePersistenceXml( persistenceXmlUrl, integration );
-		assert persistenceUnits.containsKey( name );
+		parser.parsePersistenceXml( persistenceXmlUrl, integration );
+		assert parser.persistenceUnits.containsKey( name );
 
-		return persistenceUnits.get( name );
+		return parser.persistenceUnits.get( name );
 	}
 
 	/**
@@ -184,7 +181,7 @@ public class PersistenceXmlParser {
 	 * <p/>
 	 * Parses a specific persistence.xml file...
 	 */
-	public static Map<String,ParsedPersistenceXmlDescriptor> parse(
+	public static Map<String, ParsedPersistenceXmlDescriptor> parse(
 			URL persistenceXmlUrl,
 			PersistenceUnitTransactionType transactionType) {
 		return parse( persistenceXmlUrl, transactionType, Collections.emptyMap() );
@@ -200,7 +197,7 @@ public class PersistenceXmlParser {
 	 *
 	 * @return Map of persistence-unit descriptors keyed by the PU name
 	 */
-	public static Map<String,ParsedPersistenceXmlDescriptor> parse(
+	public static Map<String, ParsedPersistenceXmlDescriptor> parse(
 			URL persistenceXmlUrl,
 			PersistenceUnitTransactionType transactionType,
 			Map integration) {
@@ -209,41 +206,41 @@ public class PersistenceXmlParser {
 				transactionType
 		);
 
-		return parser.doResolve( integration );
+		parser.doResolve( integration );
+		return parser.persistenceUnits;
 	}
-
 
 	private final ClassLoaderService classLoaderService;
 	private final PersistenceUnitTransactionType defaultTransactionType;
+	private final Map<String, ParsedPersistenceXmlDescriptor> persistenceUnits;
 
 	private PersistenceXmlParser(ClassLoaderService classLoaderService, PersistenceUnitTransactionType defaultTransactionType) {
 		this.classLoaderService = classLoaderService;
 		this.defaultTransactionType = defaultTransactionType;
+		this.persistenceUnits = new ConcurrentHashMap<>();
 	}
 
-	private Map<String,ParsedPersistenceXmlDescriptor> doResolve(Map integration) {
-		final Map<String,ParsedPersistenceXmlDescriptor> persistenceUnits = new ConcurrentHashMap<>();
-
+	private void doResolve(Map integration) {
 		final List<URL> xmlUrls = classLoaderService.locateResources( "META-INF/persistence.xml" );
 		if ( xmlUrls.isEmpty() ) {
 			LOG.unableToFindPersistenceXmlInClasspath();
 		}
 		else {
-			for ( URL xmlUrl : xmlUrls ) {
-				persistenceUnits.putAll( parsePersistenceXml( xmlUrl, integration ) );
-			}
+			parsePersistenceXml( xmlUrls, integration );
 		}
-
-		return persistenceUnits;
 	}
 
-	private Map<String,ParsedPersistenceXmlDescriptor> parsePersistenceXml(URL xmlUrl, Map integration) {
+	private void parsePersistenceXml(List<URL> xmlUrls, Map integration) {
+		for ( URL xmlUrl : xmlUrls ) {
+			parsePersistenceXml( xmlUrl, integration );
+		}
+	}
+
+	private void parsePersistenceXml(URL xmlUrl, Map integration) {
 		LOG.tracef( "Attempting to parse persistence.xml file : %s", xmlUrl.toExternalForm() );
 
 		final Document doc = loadUrl( xmlUrl );
 		final Element top = doc.getDocumentElement();
-
-		final Map<String,ParsedPersistenceXmlDescriptor> persistenceUnits = new ConcurrentHashMap<>();
 
 		final NodeList children = top.getChildNodes();
 		for ( int i = 0; i < children.getLength() ; i++ ) {
@@ -285,7 +282,6 @@ public class PersistenceXmlParser {
 				}
 			}
 		}
-		return persistenceUnits;
 	}
 
 	private void decodeTransactionType(ParsedPersistenceXmlDescriptor persistenceUnit) {
@@ -434,8 +430,7 @@ public class PersistenceXmlParser {
 			URLConnection conn = xmlUrl.openConnection();
 			conn.setUseCaches( false ); //avoid JAR locking on Windows and Tomcat
 			try {
-				InputStream inputStream = conn.getInputStream();
-				try {
+				try (InputStream inputStream = conn.getInputStream()) {
 					final InputSource inputSource = new InputSource( inputStream );
 					try {
 						DocumentBuilder documentBuilder = documentBuilderFactory().newDocumentBuilder();
@@ -444,22 +439,15 @@ public class PersistenceXmlParser {
 							validate( document );
 							return document;
 						}
-						catch (SAXException e) {
-							throw new PersistenceException( "Unexpected error parsing [" + resourceName + "]", e );
-						}
-						catch (IOException e) {
+						catch (SAXException | IOException e) {
 							throw new PersistenceException( "Unexpected error parsing [" + resourceName + "]", e );
 						}
 					}
 					catch (ParserConfigurationException e) {
-						throw new PersistenceException( "Unable to generate javax.xml.parsers.DocumentBuilder instance", e );
-					}
-				}
-				finally {
-					try {
-						inputStream.close();
-					}
-					catch (Exception ignored) {
+						throw new PersistenceException(
+								"Unable to generate javax.xml.parsers.DocumentBuilder instance",
+								e
+						);
 					}
 				}
 			}
@@ -475,22 +463,10 @@ public class PersistenceXmlParser {
 	private void validate(Document document) {
 		// todo : add ability to disable validation...
 
-		final Validator validator;
 		final String version = document.getDocumentElement().getAttribute( "version" );
-		if ( "2.1".equals( version ) ) {
-			validator = v21Schema().newValidator();
-		}
-		else if ( "2.0".equals( version ) ) {
-			validator = v2Schema().newValidator();
-		}
-		else if ( "1.0".equals(  version ) ) {
-			validator = v1Schema().newValidator();
-		}
-		else {
-			throw new PersistenceException( "Unrecognized persistence.xml version [" + version + "]" );
-		}
+		final Validator validator = ConfigXsdSupport.INSTANCE.jpaXsd( version ).getSchema().newValidator();
 
-		List<SAXException> errors = new ArrayList<SAXException>();
+		List<SAXException> errors = new ArrayList<>();
 		validator.setErrorHandler( new ErrorHandlerImpl( errors ) );
 		try {
 			validator.validate( new DOMSource( document ) );
@@ -526,68 +502,6 @@ public class PersistenceXmlParser {
 		documentBuilderFactory.setNamespaceAware( true );
 		return documentBuilderFactory;
 	}
-
-	private Schema v21Schema;
-
-	private Schema v21Schema() {
-		if ( v21Schema == null ) {
-			v21Schema = resolveLocalSchema( "org/hibernate/jpa/persistence_2_1.xsd" );
-		}
-		return v21Schema;
-	}
-
-	private Schema v2Schema;
-
-	private Schema v2Schema() {
-		if ( v2Schema == null ) {
-			v2Schema = resolveLocalSchema( "org/hibernate/jpa/persistence_2_0.xsd" );
-		}
-		return v2Schema;
-	}
-
-	private Schema v1Schema;
-
-	private Schema v1Schema() {
-		if ( v1Schema == null ) {
-			v1Schema = resolveLocalSchema( "org/hibernate/jpa/persistence_1_0.xsd" );
-		}
-		return v1Schema;
-	}
-
-
-	private Schema resolveLocalSchema(String schemaName) {
-		// These XSD resources should be available on the Hibernate ClassLoader
-		final URL url = classLoaderService.locateResource( schemaName );
-		if ( url == null ) {
-			throw new XsdException( "Unable to locate schema [" + schemaName + "] via classpath", schemaName );
-		}
-		try {
-			InputStream schemaStream = url.openStream();
-			try {
-				StreamSource source = new StreamSource( url.openStream() );
-				SchemaFactory schemaFactory = SchemaFactory.newInstance( XMLConstants.W3C_XML_SCHEMA_NS_URI );
-				return schemaFactory.newSchema( source );
-			}
-			catch ( SAXException e ) {
-				throw new XsdException( "Unable to load schema [" + schemaName + "]", e, schemaName );
-			}
-			catch ( IOException e ) {
-				throw new XsdException( "Unable to load schema [" + schemaName + "]", e, schemaName );
-			}
-			finally {
-				try {
-					schemaStream.close();
-				}
-				catch ( IOException e ) {
-					LOG.debugf( "Problem closing schema stream [%s]", e.toString() );
-				}
-			}
-		}
-		catch ( IOException e ) {
-			throw new XsdException( "Stream error handling schema url [" + url.toExternalForm() + "]", schemaName );
-		}
-	}
-
 
 	public static class ErrorHandlerImpl implements ErrorHandler {
 		private List<SAXException> errors;

@@ -13,6 +13,7 @@ import java.sql.Types;
 
 import org.hibernate.JDBCException;
 import org.hibernate.NullPrecedence;
+import org.hibernate.PessimisticLockException;
 import org.hibernate.boot.TempTableDdlTransactionHandling;
 import org.hibernate.cfg.Environment;
 import org.hibernate.dialect.function.NoArgSQLFunction;
@@ -33,7 +34,6 @@ import org.hibernate.hql.spi.id.MultiTableBulkIdStrategy;
 import org.hibernate.hql.spi.id.local.AfterUseAction;
 import org.hibernate.hql.spi.id.local.LocalTemporaryTableBulkIdStrategy;
 import org.hibernate.internal.util.JdbcExceptionHelper;
-import org.hibernate.internal.util.StringHelper;
 import org.hibernate.mapping.Column;
 import org.hibernate.type.StandardBasicTypes;
 
@@ -248,8 +248,8 @@ public class MySQLDialect extends Dialect {
 			String referencedTable,
 			String[] primaryKey,
 			boolean referencesPrimaryKey) {
-		final String cols = StringHelper.join( ", ", foreignKey );
-		final String referencedCols = StringHelper.join( ", ", primaryKey );
+		final String cols = String.join( ", ", foreignKey );
+		final String referencedCols = String.join( ", ", primaryKey );
 		return String.format(
 				" add constraint %s foreign key (%s) references %s (%s)",
 				constraintName,
@@ -526,6 +526,16 @@ public class MySQLDialect extends Dialect {
 		return new SQLExceptionConversionDelegate() {
 			@Override
 			public JDBCException convert(SQLException sqlException, String message, String sql) {
+				switch ( sqlException.getErrorCode() ) {
+					case 1205: {
+						return new PessimisticLockException( message, sqlException, sql );
+					}
+					case 1207:
+					case 1206: {
+						return new LockAcquisitionException( message, sqlException, sql );
+					}
+				}
+
 				final String sqlState = JdbcExceptionHelper.extractSqlState( sqlException );
 
 				if ( "41000".equals( sqlState ) ) {
@@ -582,5 +592,10 @@ public class MySQLDialect extends Dialect {
 
 	protected MySQLStorageEngine getDefaultMySQLStorageEngine() {
 		return MyISAMStorageEngine.INSTANCE;
+	}
+
+	@Override
+	protected String escapeLiteral(String literal) {
+		return super.escapeLiteral( literal ).replace("\\", "\\\\");
 	}
 }

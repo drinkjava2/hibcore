@@ -16,7 +16,6 @@ import antlr.collections.AST;
  *
  * @author josh
  */
-@SuppressWarnings("all")
 public class ASTParentsFirstIterator implements Iterator {
 	private AST next;
 	private AST tree;

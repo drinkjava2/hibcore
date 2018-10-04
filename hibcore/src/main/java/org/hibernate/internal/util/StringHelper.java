@@ -39,23 +39,6 @@ public final class StringHelper {
 		return string.length() - 1;
 	}
 
-	public static String join(String seperator, String[] strings) {
-		int length = strings.length;
-		if ( length == 0 ) {
-			return "";
-		}
-		// Allocate space for length * firstStringLength;
-		// If strings[0] is null, then its length is defined as 4, since that's the
-		// length of "null".
-		final int firstStringLength = strings[0] != null ? strings[0].length() : 4;
-		StringBuilder buf = new StringBuilder( length * firstStringLength )
-				.append( strings[0] );
-		for ( int i = 1; i < length; i++ ) {
-			buf.append( seperator ).append( strings[i] );
-		}
-		return buf.toString();
-	}
-
 	public static String joinWithQualifierAndSuffix(
 			String[] values,
 			String qualifier,
@@ -73,7 +56,7 @@ public final class StringHelper {
 		return buf.toString();
 	}
 
-	public static String join(String seperator, Iterator objects) {
+	public static String join(String seperator, Iterator<?> objects) {
 		StringBuilder buf = new StringBuilder();
 		if ( objects.hasNext() ) {
 			buf.append( objects.next() );
@@ -82,10 +65,6 @@ public final class StringHelper {
 			buf.append( seperator ).append( objects.next() );
 		}
 		return buf.toString();
-	}
-
-	public static String join(String separator, Iterable objects) {
-		return join( separator, objects.iterator() );
 	}
 
 	public static String[] add(String[] x, String sep, String[] y) {
@@ -210,6 +189,28 @@ public final class StringHelper {
 				)
 		);
 		return buf.toString();
+	}
+
+	/**
+	 * Used to find the ordinal parameters (e.g. '?1') in a string.
+	 */
+	public static int indexOfIdentifierWord(String str, String word) {
+		if ( str == null || str.length() == 0 || word == null || word.length() == 0 ) {
+			return -1;
+		}
+
+		int position = str.indexOf( word );
+		while ( position >= 0 && position < str.length() ) {
+			if (
+					( position == 0 || !Character.isJavaIdentifierPart( str.charAt( position - 1 ) ) ) &&
+					( position + word.length() == str.length() || !Character.isJavaIdentifierPart( str.charAt( position + word.length() ) ) )
+			) {
+				return position;
+			}
+			position = str.indexOf( word, position + 1 );
+		}
+
+		return -1;
 	}
 
 	public static char getLastNonWhitespaceCharacter(String str) {
@@ -340,7 +341,7 @@ public final class StringHelper {
 		if ( name == null || !name.startsWith( qualifierBase ) ) {
 			return name;
 		}
-		return name.substring( qualifierBase.length() + 1 ); // +1 to start afterQuery the following '.'
+		return name.substring( qualifierBase.length() + 1 ); // +1 to start after the following '.'
 	}
 
 	/**
@@ -838,18 +839,9 @@ public final class StringHelper {
 
 	public static <T> String join(Collection<T> values, Renderer<T> renderer) {
 		final StringBuilder buffer = new StringBuilder();
-		boolean firstPass = true;
 		for ( T value : values ) {
-			if ( firstPass ) {
-				firstPass = false;
-			}
-			else {
-				buffer.append( ", " );
-			}
-
-			buffer.append( renderer.render( value ) );
+			buffer.append( String.join(", ", renderer.render( value )) );
 		}
-
 		return buffer.toString();
 	}
 
@@ -859,5 +851,39 @@ public final class StringHelper {
 
 	public interface Renderer<T> {
 		String render(T value);
+	}
+
+	/**
+	 * @param firstExpression the first expression
+	 * @param secondExpression the second expression
+	 * @return if {@code firstExpression} and {@code secondExpression} are both non-empty,
+	 * then "( " + {@code firstExpression} + " ) and ( " + {@code secondExpression} + " )" is returned;
+	 * if {@code firstExpression} is non-empty and {@code secondExpression} is empty,
+	 * then {@code firstExpression} is returned;
+	 * if {@code firstExpression} is empty and {@code secondExpression} is non-empty,
+	 * then {@code secondExpression} is returned;
+	 * if both {@code firstExpression} and {@code secondExpression} are empty, then null is returned.
+	 */
+	public static String getNonEmptyOrConjunctionIfBothNonEmpty( String firstExpression, String secondExpression ) {
+		final boolean isFirstExpressionNonEmpty = StringHelper.isNotEmpty( firstExpression );
+		final boolean isSecondExpressionNonEmpty = StringHelper.isNotEmpty( secondExpression );
+		if ( isFirstExpressionNonEmpty && isSecondExpressionNonEmpty ) {
+			final StringBuilder buffer = new StringBuilder();
+			buffer.append( "( " )
+					.append( firstExpression )
+					.append( " ) and ( ")
+					.append( secondExpression )
+					.append( " )" );
+			return buffer.toString();
+		}
+		else if ( isFirstExpressionNonEmpty ) {
+			return firstExpression;
+		}
+		else if ( isSecondExpressionNonEmpty ) {
+			return secondExpression;
+		}
+		else {
+			return null;
+		}
 	}
 }

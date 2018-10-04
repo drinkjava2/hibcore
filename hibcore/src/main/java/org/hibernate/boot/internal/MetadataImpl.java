@@ -25,9 +25,11 @@ import org.hibernate.boot.model.TypeDefinition;
 import org.hibernate.boot.model.relational.Database;
 import org.hibernate.boot.model.relational.Namespace;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
+import org.hibernate.boot.spi.BootstrapContext;
 import org.hibernate.boot.spi.MetadataBuildingOptions;
 import org.hibernate.boot.spi.MetadataImplementor;
 import org.hibernate.boot.spi.SessionFactoryBuilderFactory;
+import org.hibernate.cache.cfg.internal.DomainDataRegionConfigImpl;
 import org.hibernate.cfg.annotations.NamedEntityGraphDefinition;
 import org.hibernate.cfg.annotations.NamedProcedureCallDefinition;
 import org.hibernate.dialect.function.SQLFunction;
@@ -38,7 +40,6 @@ import org.hibernate.engine.spi.NamedSQLQueryDefinition;
 import org.hibernate.id.factory.IdentifierGeneratorFactory;
 import org.hibernate.id.factory.spi.MutableIdentifierGeneratorFactory;
 import org.hibernate.internal.SessionFactoryImpl;
-import org.hibernate.internal.util.StringHelper;
 import org.hibernate.mapping.Collection;
 import org.hibernate.mapping.FetchProfile;
 import org.hibernate.mapping.MappedSuperclass;
@@ -47,7 +48,9 @@ import org.hibernate.mapping.Property;
 import org.hibernate.mapping.Table;
 import org.hibernate.procedure.ProcedureCallMemento;
 import org.hibernate.query.spi.NamedQueryRepository;
+import org.hibernate.type.Type;
 import org.hibernate.type.TypeResolver;
+import org.hibernate.type.spi.TypeConfiguration;
 
 /**
  * Container for configuration data collected during binding the metamodel.
@@ -59,8 +62,8 @@ import org.hibernate.type.TypeResolver;
 public class MetadataImpl implements MetadataImplementor, Serializable {
 	private final UUID uuid;
 	private final MetadataBuildingOptions metadataBuildingOptions;
+	private final BootstrapContext bootstrapContext;
 
-	private final TypeResolver typeResolver;
 	private final IdentifierGeneratorFactory identifierGeneratorFactory;
 
 	private final Map<String,PersistentClass> entityBindingMap;
@@ -77,12 +80,12 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 	private final Map<String, ResultSetMappingDefinition> sqlResultSetMappingMap;
 	private final Map<String, NamedEntityGraphDefinition> namedEntityGraphMap;
 	private final Map<String, SQLFunction> sqlFunctionMap;
+	private final java.util.Collection<DomainDataRegionConfigImpl.Builder> cacheRegionConfigBuilders;
 	private final Database database;
 
-	public MetadataImpl(
+	MetadataImpl(
 			UUID uuid,
 			MetadataBuildingOptions metadataBuildingOptions,
-			TypeResolver typeResolver,
 			MutableIdentifierGeneratorFactory identifierGeneratorFactory,
 			Map<String, PersistentClass> entityBindingMap,
 			Map<Class, MappedSuperclass> mappedSuperclassMap,
@@ -98,10 +101,11 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 			Map<String, ResultSetMappingDefinition> sqlResultSetMappingMap,
 			Map<String, NamedEntityGraphDefinition> namedEntityGraphMap,
 			Map<String, SQLFunction> sqlFunctionMap,
-			Database database) {
+			java.util.Collection<DomainDataRegionConfigImpl.Builder> cacheRegionConfigBuilders,
+			Database database,
+			BootstrapContext bootstrapContext) {
 		this.uuid = uuid;
 		this.metadataBuildingOptions = metadataBuildingOptions;
-		this.typeResolver = typeResolver;
 		this.identifierGeneratorFactory = identifierGeneratorFactory;
 		this.entityBindingMap = entityBindingMap;
 		this.mappedSuperclassMap = mappedSuperclassMap;
@@ -117,7 +121,9 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 		this.sqlResultSetMappingMap = sqlResultSetMappingMap;
 		this.namedEntityGraphMap = namedEntityGraphMap;
 		this.sqlFunctionMap = sqlFunctionMap;
+		this.cacheRegionConfigBuilders = cacheRegionConfigBuilders;
 		this.database = database;
+		this.bootstrapContext = bootstrapContext;
 	}
 
 	@Override
@@ -126,13 +132,25 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 	}
 
 	@Override
+	public TypeConfiguration getTypeConfiguration() {
+		return bootstrapContext.getTypeConfiguration();
+	}
+
+	/**
+	 * Retrieve the {@link Type} resolver associated with this factory.
+	 *
+	 * @return The type resolver
+	 *
+	 * @deprecated (since 5.3) No replacement, access to and handling of Types will be much different in 6.0
+	 */
+	@Deprecated
 	public TypeResolver getTypeResolver() {
-		return typeResolver;
+		return bootstrapContext.getTypeConfiguration().getTypeResolver();
 	}
 
 	@Override
 	public SessionFactoryBuilder getSessionFactoryBuilder() {
-		final SessionFactoryBuilderImpl defaultBuilder = new SessionFactoryBuilderImpl( this );
+		final SessionFactoryBuilderImpl defaultBuilder = new SessionFactoryBuilderImpl( this, bootstrapContext );
 
 		final ClassLoaderService cls = metadataBuildingOptions.getServiceRegistry().getService( ClassLoaderService.class );
 		final java.util.Collection<SessionFactoryBuilderFactory> discoveredBuilderFactories = cls.loadJavaServices( SessionFactoryBuilderFactory.class );
@@ -154,7 +172,7 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 		if ( activeFactoryNames != null && activeFactoryNames.size() > 1 ) {
 			throw new HibernateException(
 					"Multiple active SessionFactoryBuilderFactory definitions were discovered : " +
-							StringHelper.join( ", ", activeFactoryNames )
+							String.join(", ", activeFactoryNames)
 			);
 		}
 
@@ -310,7 +328,7 @@ public class MetadataImpl implements MetadataImplementor, Serializable {
 
 	}
 
-	public Map<String, ProcedureCallMemento> buildProcedureCallMementos(SessionFactoryImpl sessionFactory) {
+	private Map<String, ProcedureCallMemento> buildProcedureCallMementos(SessionFactoryImpl sessionFactory) {
 		final Map<String, ProcedureCallMemento> rtn = new HashMap<>();
 		if ( namedProcedureCallMap != null ) {
 			for ( NamedProcedureCallDefinition procedureCallDefinition : namedProcedureCallMap.values() ) {

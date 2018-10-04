@@ -23,7 +23,6 @@ import org.hibernate.internal.CoreMessageLogger;
  * @author Gavin King
  * @author Steve Ebersole
  */
-@SuppressWarnings("all")
 public class ASTQueryTranslatorFactory implements QueryTranslatorFactory {
 	private static final CoreMessageLogger LOG = CoreLogging.messageLogger( ASTQueryTranslatorFactory.class );
 

@@ -24,7 +24,6 @@ import javax.persistence.PersistenceException;
 import javax.persistence.spi.PersistenceUnitTransactionType;
 import javax.sql.DataSource;
 
-
 import org.hibernate.SessionFactory;
 import org.hibernate.SessionFactoryObserver;
 import org.hibernate.boot.CacheRegionDefinition;
@@ -36,7 +35,6 @@ import org.hibernate.boot.cfgxml.internal.ConfigLoader;
 import org.hibernate.boot.cfgxml.spi.CfgXmlAccessService;
 import org.hibernate.boot.cfgxml.spi.LoadedConfig;
 import org.hibernate.boot.cfgxml.spi.MappingReference;
-import org.hibernate.boot.model.TypeContributor;
 import org.hibernate.boot.model.process.spi.ManagedResources;
 import org.hibernate.boot.model.process.spi.MetadataBuildingProcess;
 import org.hibernate.boot.registry.BootstrapServiceRegistry;
@@ -47,6 +45,7 @@ import org.hibernate.boot.registry.classloading.internal.TcclLookupPrecedence;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
 import org.hibernate.boot.registry.selector.StrategyRegistrationProvider;
 import org.hibernate.boot.registry.selector.spi.StrategySelector;
+import org.hibernate.boot.spi.MetadataBuilderContributor;
 import org.hibernate.boot.spi.MetadataBuilderImplementor;
 import org.hibernate.boot.spi.MetadataImplementor;
 import org.hibernate.boot.spi.SessionFactoryBuilderImplementor;
@@ -68,7 +67,6 @@ import org.hibernate.jpa.boot.spi.IntegratorProvider;
 import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
 import org.hibernate.jpa.boot.spi.StrategyRegistrationProviderList;
 import org.hibernate.jpa.boot.spi.TypeContributorList;
-import org.hibernate.jpa.event.spi.JpaIntegrator;
 import org.hibernate.jpa.internal.util.LogHelper;
 import org.hibernate.jpa.internal.util.PersistenceUnitTransactionTypeHelper;
 import org.hibernate.jpa.spi.IdentifierGeneratorStrategyProvider;
@@ -87,6 +85,7 @@ import org.jboss.jandex.Index;
 import static org.hibernate.cfg.AvailableSettings.DATASOURCE;
 import static org.hibernate.cfg.AvailableSettings.DRIVER;
 import static org.hibernate.cfg.AvailableSettings.JACC_CONTEXT_ID;
+import static org.hibernate.cfg.AvailableSettings.JACC_ENABLED;
 import static org.hibernate.cfg.AvailableSettings.JACC_PREFIX;
 import static org.hibernate.cfg.AvailableSettings.JPA_JDBC_DRIVER;
 import static org.hibernate.cfg.AvailableSettings.JPA_JDBC_PASSWORD;
@@ -132,6 +131,11 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 	 * Names a {@link TypeContributorList}
 	 */
 	public static final String TYPE_CONTRIBUTORS = "hibernate.type_contributors";
+
+	/**
+	 * Names a {@link MetadataBuilderImplementor}
+	 */
+	public static final String METADATA_BUILDER_CONTRIBUTOR = "hibernate.metadata_builder_contributor";
 
 	/**
 	 * Names a Jandex {@link Index} instance to use.
@@ -227,8 +231,11 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 
 		this.managedResources = MetadataBuildingProcess.prepare(
 				metadataSources,
-				metamodelBuilder.getMetadataBuildingOptions()
+				metamodelBuilder.getBootstrapContext()
 		);
+
+		applyMetadataBuilderContributor();
+
 
 		withValidatorFactory( configurationValues.get( org.hibernate.cfg.AvailableSettings.JPA_VALIDATION_FACTORY ) );
 
@@ -252,6 +259,51 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 
 		// for the time being we want to revoke access to the temp ClassLoader if one was passed
 		metamodelBuilder.applyTempClassLoader( null );
+	}
+
+	private void applyMetadataBuilderContributor() {
+
+		Object metadataBuilderContributorSetting = configurationValues.get( METADATA_BUILDER_CONTRIBUTOR );
+
+		if ( metadataBuilderContributorSetting == null ) {
+			return;
+		}
+
+		MetadataBuilderContributor metadataBuilderContributor = null;
+		Class<? extends MetadataBuilderContributor> metadataBuilderContributorImplClass = null;
+
+		if ( metadataBuilderContributorSetting instanceof MetadataBuilderContributor ) {
+			metadataBuilderContributor = (MetadataBuilderContributor) metadataBuilderContributorSetting;
+		}
+		else if ( metadataBuilderContributorSetting instanceof Class ) {
+			metadataBuilderContributorImplClass = (Class<? extends MetadataBuilderContributor>) metadataBuilderContributorSetting;
+		}
+		else if ( metadataBuilderContributorSetting instanceof String ) {
+			final ClassLoaderService classLoaderService = standardServiceRegistry.getService( ClassLoaderService.class );
+
+			metadataBuilderContributorImplClass = classLoaderService.classForName( (String) metadataBuilderContributorSetting );
+		}
+		else {
+			throw new IllegalArgumentException(
+					"The provided " + METADATA_BUILDER_CONTRIBUTOR + " setting value [" + metadataBuilderContributorSetting + "] is not supported!"
+			);
+		}
+
+		if ( metadataBuilderContributorImplClass != null ) {
+			try {
+				metadataBuilderContributor = metadataBuilderContributorImplClass.newInstance();
+			}
+			catch (InstantiationException | IllegalAccessException e) {
+				throw new IllegalArgumentException(
+						"The MetadataBuilderContributor class [" + metadataBuilderContributorImplClass + "] could not be instantiated!",
+						e
+				);
+			}
+		}
+
+		if ( metadataBuilderContributor != null ) {
+			metadataBuilderContributor.contribute( metamodelBuilder );
+		}
 	}
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -332,8 +384,6 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 			ClassLoader providedClassLoader,
 			ClassLoaderService providedClassLoaderService) {
 		final BootstrapServiceRegistryBuilder bsrBuilder = new BootstrapServiceRegistryBuilder();
-
-		bsrBuilder.applyIntegrator( new JpaIntegrator() );
 
 		final IntegratorProvider integratorProvider = (IntegratorProvider) integrationSettings.get( INTEGRATOR_PROVIDER );
 		if ( integratorProvider != null ) {
@@ -468,7 +518,7 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 		//		1) additional JACC permissions
 		//		2) additional cache region declarations
 		//
-		// we will also clean up an references with null entries
+		// we will also clean up any references with null entries
 		Iterator itr = mergedSettings.configurationValues.entrySet().iterator();
 		while ( itr.hasNext() ) {
 			final Map.Entry entry = (Map.Entry) itr.next();
@@ -483,15 +533,17 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 				final String valueString = (String) entry.getValue();
 
 				if ( keyString.startsWith( JACC_PREFIX ) ) {
-					if ( jaccContextId == null ) {
-						LOG.debug(
-								"Found JACC permission grant [%s] in properties, but no JACC context id was specified; ignoring"
-						);
-					}
-					else {
-						mergedSettings.getJaccPermissions( jaccContextId ).addPermissionDeclaration(
-								parseJaccConfigEntry( keyString, valueString )
-						);
+					if( !JACC_CONTEXT_ID.equals( keyString ) && !JACC_ENABLED.equals( keyString )) {
+						if ( jaccContextId == null ) {
+							LOG.debug(
+									"Found JACC permission grant [%s] in properties, but no JACC context id was specified; ignoring"
+							);
+						}
+						else {
+							mergedSettings.getJaccPermissions( jaccContextId ).addPermissionDeclaration(
+									parseJaccConfigEntry( keyString, valueString )
+							);
+						}
 					}
 				}
 				else if ( keyString.startsWith( CLASS_CACHE_PREFIX ) ) {
@@ -595,7 +647,7 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 		applyJdbcConnectionProperties( ssrBuilder );
 		applyTransactionProperties( ssrBuilder );
 
-		// flush beforeQuery completion validation
+		// flush before completion validation
 		if ( "true".equals( configurationValues.get( Environment.FLUSH_BEFORE_COMPLETION ) ) ) {
 			ssrBuilder.applySetting( Environment.FLUSH_BEFORE_COMPLETION, "false" );
 			LOG.definingFlushBeforeCompletionIgnoredInHem( Environment.FLUSH_BEFORE_COMPLETION );
@@ -769,9 +821,7 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 		// add any explicit orm.xml references passed in
 		final List<String> explicitOrmXmlList = (List<String>) configurationValues.remove( AvailableSettings.XML_FILE_NAMES );
 		if ( explicitOrmXmlList != null ) {
-			for ( String ormXml : explicitOrmXmlList ) {
-				metadataSources.addResource( ormXml );
-			}
+			explicitOrmXmlList.forEach( metadataSources::addResource );
 		}
 
 		return attributeConverterDefinitions;
@@ -782,6 +832,8 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 			MergedSettings mergedSettings,
 			StandardServiceRegistry ssr,
 			List<AttributeConverterDefinition> attributeConverterDefinitions) {
+		( (MetadataBuilderImplementor) metamodelBuilder ).getBootstrapContext().markAsJpaBootstrap();
+
 		if ( persistenceUnit.getTempClassLoader() != null ) {
 			metamodelBuilder.applyTempClassLoader( persistenceUnit.getTempClassLoader() );
 		}
@@ -795,24 +847,18 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 		);
 
 		if ( mergedSettings.cacheRegionDefinitions != null ) {
-			for ( CacheRegionDefinition localCacheRegionDefinition : mergedSettings.cacheRegionDefinitions ) {
-				metamodelBuilder.applyCacheRegionDefinition( localCacheRegionDefinition );
-			}
+			mergedSettings.cacheRegionDefinitions.forEach( metamodelBuilder::applyCacheRegionDefinition );
 		}
 
 		final TypeContributorList typeContributorList = (TypeContributorList) configurationValues.remove(
 				TYPE_CONTRIBUTORS
 		);
 		if ( typeContributorList != null ) {
-			for ( TypeContributor typeContributor : typeContributorList.getTypeContributors() ) {
-				metamodelBuilder.applyTypes( typeContributor );
-			}
+			typeContributorList.getTypeContributors().forEach( metamodelBuilder::applyTypes );
 		}
 
 		if ( attributeConverterDefinitions != null ) {
-			for ( AttributeConverterDefinition attributeConverterDefinition : attributeConverterDefinitions ) {
-				metamodelBuilder.applyAttributeConverter( attributeConverterDefinition );
-			}
+			attributeConverterDefinitions.forEach( metamodelBuilder::applyAttributeConverter );
 		}
 	}
 
@@ -855,7 +901,11 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 
 	private MetadataImplementor metadata() {
 		if ( this.metadata == null ) {
-			this.metadata = MetadataBuildingProcess.complete( managedResources, metamodelBuilder.getMetadataBuildingOptions() );
+			this.metadata = MetadataBuildingProcess.complete(
+					managedResources,
+					metamodelBuilder.getBootstrapContext(),
+					metamodelBuilder.getMetadataBuildingOptions()
+			);
 		}
 		return metadata;
 	}
@@ -894,7 +944,6 @@ public class EntityManagerFactoryBuilderImpl implements EntityManagerFactoryBuil
 	}
 
 	protected void populate(SessionFactoryBuilder sfBuilder, StandardServiceRegistry ssr) {
-		( ( SessionFactoryBuilderImplementor) sfBuilder ).markAsJpaBootstrap();
 
 		final StrategySelector strategySelector = ssr.getService( StrategySelector.class );
 

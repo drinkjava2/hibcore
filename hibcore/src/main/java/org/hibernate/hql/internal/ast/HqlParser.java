@@ -20,6 +20,7 @@ import org.hibernate.hql.internal.antlr.HqlBaseParser;
 import org.hibernate.hql.internal.antlr.HqlTokenTypes;
 import org.hibernate.hql.internal.ast.util.ASTPrinter;
 import org.hibernate.hql.internal.ast.util.ASTUtil;
+import org.hibernate.hql.internal.ast.util.TokenPrinters;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.internal.util.StringHelper;
@@ -41,11 +42,6 @@ public final class HqlParser extends HqlBaseParser {
 	private static final CoreMessageLogger LOG = CoreLogging.messageLogger( HqlParser.class );
 
 	private final ParseErrorHandler parseErrorHandler;
-	private final ASTPrinter printer = getASTPrinter();
-
-	private static ASTPrinter getASTPrinter() {
-		return new ASTPrinter( org.hibernate.hql.internal.antlr.HqlTokenTypes.class );
-	}
 
 	/**
 	 * Get a HqlParser instance for the given HQL string.
@@ -61,7 +57,7 @@ public final class HqlParser extends HqlBaseParser {
 	private HqlParser(String hql) {
 		// The fix for HHH-558...
 		super( new HqlLexer( new StringReader( hql ) ) );
-		parseErrorHandler = new ErrorCounter( hql );
+		parseErrorHandler = new ErrorTracker( hql );
 		// Create nodes that track line and column number.
 		setASTFactory( new HqlASTFactory() );
 	}
@@ -362,7 +358,7 @@ public final class HqlParser extends HqlBaseParser {
 	}
 
 	private void showAst(AST ast, PrintWriter pw) {
-		printer.showAst( ast, pw );
+		TokenPrinters.HQL_TOKEN_PRINTER.showAst( ast, pw );
 	}
 
 	@Override
@@ -421,7 +417,7 @@ public final class HqlParser extends HqlBaseParser {
 				}
 				break;
 			default:
-				// Case 2: The current token is afterQuery FROM and beforeQuery '.'.
+				// Case 2: The current token is after FROM and before '.'.
 				if ( LA( 0 ) == FROM && t != IDENT && LA( 2 ) == DOT ) {
 					HqlToken hqlToken = (HqlToken) LT( 1 );
 					if ( hqlToken.isPossibleID() ) {

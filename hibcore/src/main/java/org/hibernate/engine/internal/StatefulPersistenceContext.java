@@ -32,7 +32,7 @@ import org.hibernate.PersistentObjectException;
 import org.hibernate.TransientObjectException;
 import org.hibernate.action.spi.AfterTransactionCompletionProcess;
 import org.hibernate.bytecode.enhance.spi.interceptor.LazyAttributeLoadingInterceptor;
-import org.hibernate.cache.spi.access.NaturalIdRegionAccessStrategy;
+import org.hibernate.cache.spi.access.NaturalIdDataAccess;
 import org.hibernate.cache.spi.access.SoftLock;
 import org.hibernate.collection.spi.PersistentCollection;
 import org.hibernate.engine.loading.internal.LoadContexts;
@@ -61,6 +61,7 @@ import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.pretty.MessageHelper;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.proxy.LazyInitializer;
+import org.hibernate.stat.internal.StatsHelper;
 import org.hibernate.type.CollectionType;
 
 import org.jboss.logging.Logger;
@@ -844,7 +845,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	}
 
 	/**
-	 * Add an collection to the cache, with a given collection entry.
+	 * Add a collection to the cache, with a given collection entry.
 	 *
 	 * @param coll The collection for which we are adding an entry.
 	 * @param entry The entry representing the collection.
@@ -1073,7 +1074,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 		if ( removeOrphanBeforeUpdatesCounter >= getCascadeLevel() ) {
 			throw new IllegalStateException(
 					String.format(
-							"Cascade level [%d] is out of sync with removeOrphanBeforeUpdatesCounter [%d] beforeQuery incrementing removeOrphanBeforeUpdatesCounter",
+							"Cascade level [%d] is out of sync with removeOrphanBeforeUpdatesCounter [%d] before incrementing removeOrphanBeforeUpdatesCounter",
 							getCascadeLevel(),
 							removeOrphanBeforeUpdatesCounter
 					)
@@ -1089,7 +1090,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 		if ( removeOrphanBeforeUpdatesCounter > getCascadeLevel() ) {
 			throw new IllegalStateException(
 					String.format(
-							"Cascade level [%d] is out of sync with removeOrphanBeforeUpdatesCounter [%d] beforeQuery decrementing removeOrphanBeforeUpdatesCounter",
+							"Cascade level [%d] is out of sync with removeOrphanBeforeUpdatesCounter [%d] before decrementing removeOrphanBeforeUpdatesCounter",
 							getCascadeLevel(),
 							removeOrphanBeforeUpdatesCounter
 					)
@@ -1099,7 +1100,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	}
 
 	/**
-	 * Call this beforeQuery beginning a two-phase load
+	 * Call this before beginning a two-phase load
 	 */
 	@Override
 	public void beforeLoad() {
@@ -1107,7 +1108,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	}
 
 	/**
-	 * Call this afterQuery finishing a two-phase load
+	 * Call this after finishing a two-phase load
 	 */
 	@Override
 	public void afterLoad() {
@@ -1437,7 +1438,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	public void serialize(ObjectOutputStream oos) throws IOException {
 		final boolean tracing = LOG.isTraceEnabled();
 		if ( tracing ) {
-			LOG.trace( "Serializing persisatence-context" );
+			LOG.trace( "Serializing persistence-context" );
 		}
 
 		oos.writeBoolean( defaultReadOnly );
@@ -1533,7 +1534,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 			SessionImplementor session) throws IOException, ClassNotFoundException {
 		final boolean tracing = LOG.isTraceEnabled();
 		if ( tracing ) {
-			LOG.trace( "Serializing persistent-context" );
+			LOG.trace( "Deserializing persistence-context" );
 		}
 		final StatefulPersistenceContext rtn = new StatefulPersistenceContext( session );
 		SessionFactoryImplementor sfi = session.getFactory();
@@ -1670,7 +1671,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	@Override
 	public void registerInsertedKey(EntityPersister persister, Serializable id) {
 		// we only are worried about registering these if the persister defines caching
-		if ( persister.hasCache() ) {
+		if ( persister.canWriteToCache() ) {
 			if ( insertedKeysMap == null ) {
 				insertedKeysMap = new HashMap<>();
 			}
@@ -1687,7 +1688,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 	@Override
 	public boolean wasInsertedDuringTransaction(EntityPersister persister, Serializable id) {
 		// again, we only really care if the entity is cached
-		if ( persister.hasCache() ) {
+		if ( persister.canWriteToCache() ) {
 			if ( insertedKeysMap != null ) {
 				final List<Serializable> insertedEntityIds = insertedKeysMap.get( persister.getRootEntityName() );
 				if ( insertedEntityIds != null ) {
@@ -1783,7 +1784,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 				Object[] naturalIdValues,
 				Object[] previousNaturalIdValues,
 				CachedNaturalIdValueSource source) {
-			final NaturalIdRegionAccessStrategy naturalIdCacheAccessStrategy = persister.getNaturalIdCacheAccessStrategy();
+			final NaturalIdDataAccess naturalIdCacheAccessStrategy = persister.getNaturalIdCacheAccessStrategy();
 			final Object naturalIdCacheKey = naturalIdCacheAccessStrategy.generateCacheKey( naturalIdValues, persister, session );
 
 			final SessionFactoryImplementor factory = session.getFactory();
@@ -1798,12 +1799,14 @@ public class StatefulPersistenceContext implements PersistenceContext {
 							session,
 							naturalIdCacheKey,
 							id,
-							session.getTimestamp(),
 							null
 					);
 
 					if ( put && factory.getStatistics().isStatisticsEnabled() ) {
-						factory.getStatistics().naturalIdCachePut( naturalIdCacheAccessStrategy.getRegion().getName() );
+						factory.getStatistics().naturalIdCachePut(
+								StatsHelper.INSTANCE.getRootEntityRole( persister ),
+								naturalIdCacheAccessStrategy.getRegion().getName()
+						);
 					}
 
 					break;
@@ -1811,7 +1814,10 @@ public class StatefulPersistenceContext implements PersistenceContext {
 				case INSERT: {
 					final boolean put = naturalIdCacheAccessStrategy.insert( session, naturalIdCacheKey, id );
 					if ( put && factory.getStatistics().isStatisticsEnabled() ) {
-						factory.getStatistics().naturalIdCachePut( naturalIdCacheAccessStrategy.getRegion().getName() );
+						factory.getStatistics().naturalIdCachePut(
+								StatsHelper.INSTANCE.getRootEntityRole( persister ),
+								naturalIdCacheAccessStrategy.getRegion().getName()
+						);
 					}
 
 					( (EventSource) session ).getActionQueue().registerProcess(
@@ -1820,9 +1826,11 @@ public class StatefulPersistenceContext implements PersistenceContext {
 								public void doAfterTransactionCompletion(boolean success, SharedSessionContractImplementor session) {
 									if (success) {
 										final boolean put = naturalIdCacheAccessStrategy.afterInsert( session, naturalIdCacheKey, id );
-
 										if ( put && factory.getStatistics().isStatisticsEnabled() ) {
-											factory.getStatistics().naturalIdCachePut( naturalIdCacheAccessStrategy.getRegion().getName() );
+											factory.getStatistics().naturalIdCachePut(
+													StatsHelper.INSTANCE.getRootEntityRole( persister ),
+													naturalIdCacheAccessStrategy.getRegion().getName()
+											);
 										}
 									}
 									else {
@@ -1846,7 +1854,10 @@ public class StatefulPersistenceContext implements PersistenceContext {
 					final SoftLock lock = naturalIdCacheAccessStrategy.lockItem( session, naturalIdCacheKey, null );
 					final boolean put = naturalIdCacheAccessStrategy.update( session, naturalIdCacheKey, id );
 					if ( put && factory.getStatistics().isStatisticsEnabled() ) {
-						factory.getStatistics().naturalIdCachePut( naturalIdCacheAccessStrategy.getRegion().getName() );
+						factory.getStatistics().naturalIdCachePut(
+								StatsHelper.INSTANCE.getRootEntityRole( persister ),
+								naturalIdCacheAccessStrategy.getRegion().getName()
+						);
 					}
 
 					( (EventSource) session ).getActionQueue().registerProcess(
@@ -1863,7 +1874,10 @@ public class StatefulPersistenceContext implements PersistenceContext {
 										);
 
 										if ( put && factory.getStatistics().isStatisticsEnabled() ) {
-											factory.getStatistics().naturalIdCachePut( naturalIdCacheAccessStrategy.getRegion().getName() );
+											factory.getStatistics().naturalIdCachePut(
+													StatsHelper.INSTANCE.getRootEntityRole( persister ),
+													naturalIdCacheAccessStrategy.getRegion().getName()
+											);
 										}
 									}
 									else {
@@ -1917,7 +1931,7 @@ public class StatefulPersistenceContext implements PersistenceContext {
 			//		2) should prefer session-cached values if any (requires interaction from removeLocalNaturalIdCrossReference
 
 			persister = locateProperPersister( persister );
-			final NaturalIdRegionAccessStrategy naturalIdCacheAccessStrategy = persister.getNaturalIdCacheAccessStrategy();
+			final NaturalIdDataAccess naturalIdCacheAccessStrategy = persister.getNaturalIdCacheAccessStrategy();
 			final Object naturalIdCacheKey = naturalIdCacheAccessStrategy.generateCacheKey( naturalIdValues, persister, session );
 			naturalIdCacheAccessStrategy.evict( naturalIdCacheKey );
 

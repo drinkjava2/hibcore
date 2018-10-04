@@ -15,6 +15,7 @@ import javax.persistence.AttributeOverrides;
 import javax.persistence.ConstraintMode;
 import javax.persistence.InheritanceType;
 import javax.persistence.MapKeyClass;
+import javax.persistence.MapKeyColumn;
 import javax.persistence.MapKeyJoinColumn;
 import javax.persistence.MapKeyJoinColumns;
 
@@ -72,7 +73,7 @@ public class MapBinder extends CollectionBinder {
 	}
 
 	protected Collection createCollection(PersistentClass persistentClass) {
-		return new org.hibernate.mapping.Map( getBuildingContext().getMetadataCollector(), persistentClass );
+		return new org.hibernate.mapping.Map( getBuildingContext(), persistentClass );
 	}
 
 	@Override
@@ -102,8 +103,53 @@ public class MapBinder extends CollectionBinder {
 						mapKeyColumns, mapKeyManyToManyColumns,
 						inverseColumns != null ? inverseColumns[0].getPropertyName() : null
 				);
+				makeOneToManyMapKeyColumnNullableIfNotInProperty( property );
 			}
 		};
+	}
+
+	private void makeOneToManyMapKeyColumnNullableIfNotInProperty(
+			final XProperty property) {
+		final org.hibernate.mapping.Map map = (org.hibernate.mapping.Map) this.collection;
+		if ( map.isOneToMany() &&
+				property.isAnnotationPresent( MapKeyColumn.class ) ) {
+			final Value indexValue = map.getIndex();
+			if ( indexValue.getColumnSpan() != 1 ) {
+				throw new AssertionFailure( "Map key mapped by @MapKeyColumn does not have 1 column" );
+			}
+			final Selectable selectable = indexValue.getColumnIterator().next();
+			if ( selectable.isFormula() ) {
+				throw new AssertionFailure( "Map key mapped by @MapKeyColumn is a Formula" );
+			}
+			Column column = (Column) map.getIndex().getColumnIterator().next();
+			if ( !column.isNullable() ) {
+				final PersistentClass persistentClass = ( ( OneToMany ) map.getElement() ).getAssociatedClass();
+				// check if the index column has been mapped by the associated entity to a property;
+				// @MapKeyColumn only maps a column to the primary table for the one-to-many, so we only
+				// need to check "un-joined" properties.
+				if ( !propertyIteratorContainsColumn( persistentClass.getUnjoinedPropertyIterator(), column ) ) {
+					// The index column is not mapped to an associated entity property so we can
+					// safely make the index column nullable.
+					column.setNullable( true );
+				}
+			}
+		}
+	}
+
+	private boolean propertyIteratorContainsColumn(Iterator propertyIterator, Column column) {
+		for ( Iterator it = propertyIterator; it.hasNext(); ) {
+			final Property property = (Property) it.next();
+			for ( Iterator<Selectable> selectableIterator = property.getColumnIterator(); selectableIterator.hasNext(); ) {
+				final Selectable selectable = selectableIterator.next();
+				if ( column.equals( selectable ) ) {
+					final Column iteratedColumn = (Column) selectable;
+					if ( column.getValue().getTable().equals( iteratedColumn.getValue().getTable() ) ) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
 	}
 
 	private void bindKeyFromAssociationTable(
@@ -160,7 +206,7 @@ public class MapBinder extends CollectionBinder {
 			ManyToOne element = null;
 			org.hibernate.mapping.Map mapValue = (org.hibernate.mapping.Map) this.collection;
 			if ( isIndexOfEntities ) {
-				element = new ManyToOne( buildingContext.getMetadataCollector(), mapValue.getCollectionTable() );
+				element = new ManyToOne( buildingContext, mapValue.getCollectionTable() );
 				mapValue.setIndex( element );
 				element.setReferencedEntityName( mapKeyType );
 				//element.setFetchMode( fetchMode );
@@ -179,7 +225,7 @@ public class MapBinder extends CollectionBinder {
 				}
 				else {
 					try {
-						keyXClass = buildingContext.getBuildingOptions().getReflectionManager().classForName( mapKeyType );
+						keyXClass = buildingContext.getBootstrapContext().getReflectionManager().classForName( mapKeyType );
 					}
 					catch (ClassLoadingException e) {
 						throw new AnnotationException( "Unable to find class: " + mapKeyType, e );
@@ -411,7 +457,7 @@ public class MapBinder extends CollectionBinder {
 		if ( value instanceof Component ) {
 			Component component = (Component) value;
 			Iterator properties = component.getPropertyIterator();
-			Component indexComponent = new Component( getBuildingContext().getMetadataCollector(), collection );
+			Component indexComponent = new Component( getBuildingContext(), collection );
 			indexComponent.setComponentClassName( component.getComponentClassName() );
 			while ( properties.hasNext() ) {
 				Property current = (Property) properties.next();
@@ -442,7 +488,7 @@ public class MapBinder extends CollectionBinder {
 			SimpleValue targetValue;
 			if ( value instanceof ManyToOne ) {
 				ManyToOne sourceManyToOne = (ManyToOne) sourceValue;
-				ManyToOne targetManyToOne = new ManyToOne( getBuildingContext().getMetadataCollector(), collection.getCollectionTable() );
+				ManyToOne targetManyToOne = new ManyToOne( getBuildingContext(), collection.getCollectionTable() );
 				targetManyToOne.setFetchMode( FetchMode.DEFAULT );
 				targetManyToOne.setLazy( true );
 				//targetValue.setIgnoreNotFound( ); does not make sense for a map key
@@ -450,7 +496,7 @@ public class MapBinder extends CollectionBinder {
 				targetValue = targetManyToOne;
 			}
 			else {
-				targetValue = new SimpleValue( getBuildingContext().getMetadataCollector(), collection.getCollectionTable() );
+				targetValue = new SimpleValue( getBuildingContext(), collection.getCollectionTable() );
 				targetValue.copyTypeFrom( sourceValue );
 			}
 			Iterator columns = sourceValue.getColumnIterator();

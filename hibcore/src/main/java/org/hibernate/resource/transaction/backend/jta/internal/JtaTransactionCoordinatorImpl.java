@@ -19,6 +19,7 @@ import org.hibernate.engine.jdbc.spi.JdbcServices;
 import org.hibernate.engine.transaction.jta.platform.spi.JtaPlatform;
 import org.hibernate.engine.transaction.spi.IsolationDelegate;
 import org.hibernate.engine.transaction.spi.TransactionObserver;
+import org.hibernate.jpa.spi.JpaCompliance;
 import org.hibernate.resource.jdbc.spi.JdbcSessionContext;
 import org.hibernate.resource.jdbc.spi.JdbcSessionOwner;
 import org.hibernate.resource.transaction.TransactionRequiredForJoinException;
@@ -74,10 +75,11 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 			TransactionCoordinatorBuilder transactionCoordinatorBuilder,
 			TransactionCoordinatorOwner owner,
 			boolean autoJoinTransactions) {
-		this.observers = new ArrayList<TransactionObserver>();
 		this.transactionCoordinatorBuilder = transactionCoordinatorBuilder;
 		this.transactionCoordinatorOwner = owner;
 		this.autoJoinTransactions = autoJoinTransactions;
+
+		this.observers = new ArrayList<>();
 
 		final JdbcSessionContext jdbcSessionContext = owner.getJdbcSessionOwner().getJdbcSessionContext();
 
@@ -100,13 +102,14 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 			boolean preferUserTransactions,
 			boolean performJtaThreadTracking,
 			TransactionObserver... observers) {
-		this.observers = new ArrayList<TransactionObserver>();
 		this.transactionCoordinatorBuilder = transactionCoordinatorBuilder;
 		this.transactionCoordinatorOwner = owner;
 		this.autoJoinTransactions = autoJoinTransactions;
 		this.jtaPlatform = jtaPlatform;
 		this.preferUserTransactions = preferUserTransactions;
 		this.performJtaThreadTracking = performJtaThreadTracking;
+
+		this.observers = new ArrayList<>();
 
 		if ( observers != null ) {
 			Collections.addAll( this.observers, observers );
@@ -115,7 +118,16 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 		synchronizationRegistered = false;
 
 		pulse();
+	}
 
+	/**
+	 * Needed because while iterating the observers list and executing the before/update callbacks,
+	 * some observers might get removed from the list.
+	 *
+	 * @return TransactionObserver
+	 */
+	private Iterable<TransactionObserver> observers() {
+		return new ArrayList<>( observers );
 	}
 
 	public SynchronizationCallbackCoordinator getSynchronizationCallbackCoordinator() {
@@ -159,6 +171,9 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 		getSynchronizationCallbackCoordinator().synchronizationRegistered();
 		synchronizationRegistered = true;
 		log.debug( "Hibernate RegisteredSynchronization successfully registered with JTA platform" );
+
+		// report entering into a "transactional context"
+		getTransactionCoordinatorOwner().startTransactionBoundary();
 	}
 
 	@Override
@@ -195,6 +210,15 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 
 	public TransactionCoordinatorOwner getTransactionCoordinatorOwner(){
 		return this.transactionCoordinatorOwner;
+	}
+
+	@Override
+	public JpaCompliance getJpaCompliance() {
+		return transactionCoordinatorOwner.getJdbcSessionOwner()
+				.getJdbcSessionContext()
+				.getSessionFactory()
+				.getSessionFactoryOptions()
+				.getJpaCompliance();
 	}
 
 	@Override
@@ -312,6 +336,14 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 		return this.timeOut;
 	}
 
+	@Override
+	public void invalidate() {
+		if ( physicalTransactionDelegate != null ) {
+			physicalTransactionDelegate.invalidate();
+		}
+		physicalTransactionDelegate = null;
+	}
+
 	// SynchronizationCallbackTarget ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 	@Override
@@ -329,7 +361,7 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 		}
 		finally {
 			synchronizationRegistry.notifySynchronizationsBeforeTransactionCompletion();
-			for ( TransactionObserver observer : observers ) {
+			for ( TransactionObserver observer : observers() ) {
 				observer.beforeCompletion();
 			}
 		}
@@ -348,15 +380,10 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 
 		transactionCoordinatorOwner.afterTransactionCompletion( successful, delayed );
 
-		for ( TransactionObserver observer : observers ) {
+		for ( TransactionObserver observer : observers() ) {
 			observer.afterCompletion( successful, delayed );
 		}
 
-		if ( physicalTransactionDelegate != null ) {
-			physicalTransactionDelegate.invalidate();
-		}
-
-		physicalTransactionDelegate = null;
 		synchronizationRegistered = false;
 	}
 
@@ -368,7 +395,6 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 	public void removeObserver(TransactionObserver observer) {
 		observers.remove( observer );
 	}
-
 
 	/**
 	 * Implementation of the LocalInflow for this TransactionCoordinator.  Allows the
@@ -406,7 +432,7 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 			errorIfInvalid();
 			getTransactionCoordinatorOwner().flushBeforeTransactionCompletion();
 
-			// we don't have to perform any beforeQuery/afterQuery completion processing here.  We leave that for
+			// we don't have to perform any before/after completion processing here.  We leave that for
 			// the Synchronization callbacks
 			jtaTransactionAdapter.commit();
 		}
@@ -415,7 +441,7 @@ public class JtaTransactionCoordinatorImpl implements TransactionCoordinator, Sy
 		public void rollback() {
 			errorIfInvalid();
 
-			// we don't have to perform any afterQuery completion processing here.  We leave that for
+			// we don't have to perform any after completion processing here.  We leave that for
 			// the Synchronization callbacks
 			jtaTransactionAdapter.rollback();
 		}

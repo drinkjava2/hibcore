@@ -67,7 +67,7 @@ public class QueryPlanCache implements Serializable {
 	private final BoundedConcurrentHashMap<ParameterMetadataKey,ParameterMetadataImpl> parameterMetadataCache;
 
 
-	private NativeQueryInterpreter nativeQueryInterpreterService;
+	private NativeQueryInterpreter nativeQueryInterpreter;
 
 	/**
 	 * Constructs the QueryPlanCache to be used by the given SessionFactory
@@ -108,7 +108,7 @@ public class QueryPlanCache implements Serializable {
 				BoundedConcurrentHashMap.Eviction.LIRS
 		);
 
-		nativeQueryInterpreterService = factory.getServiceRegistry().getService( NativeQueryInterpreter.class );
+		nativeQueryInterpreter = factory.getServiceRegistry().getService( NativeQueryInterpreter.class );
 	}
 
 	/**
@@ -125,7 +125,7 @@ public class QueryPlanCache implements Serializable {
 		final ParameterMetadataKey key = new ParameterMetadataKey( query, isOrdinalParameterZeroBased );
 		ParameterMetadataImpl value = parameterMetadataCache.get( key );
 		if ( value == null ) {
-			value = nativeQueryInterpreterService.getParameterMetadata( query );
+			value = nativeQueryInterpreter.getParameterMetadata( query );
 			parameterMetadataCache.putIfAbsent( key, value );
 		}
 		return value;
@@ -210,7 +210,7 @@ public class QueryPlanCache implements Serializable {
 		NativeSQLQueryPlan value = (NativeSQLQueryPlan) queryPlanCache.get( spec );
 		if ( value == null ) {
 			LOG.tracev( "Unable to locate native-sql query plan in cache; generating ({0})", spec.getQueryString() );
-			value = nativeQueryInterpreterService.createQueryPlan( spec, factory );
+			value = nativeQueryInterpreter.createQueryPlan( spec, factory );
 			queryPlanCache.putIfAbsent( spec, value );
 		}
 		else {
@@ -220,12 +220,22 @@ public class QueryPlanCache implements Serializable {
 	}
 
 	/**
-	 * clean up QueryPlanCache when SessionFactory is closed
+	 * Clean up the caches when the SessionFactory is closed.
+	 * <p>
+	 * Note that depending on the cache strategy implementation chosen, clearing the cache might not reclaim all the
+	 * memory.
+	 * <p>
+	 * Typically, when using LIRS, clearing the cache only invalidates the entries but the outdated entries are kept in
+	 * memory until they are replaced by others. It is not considered a memory leak as the cache is bounded.
 	 */
 	public void cleanup() {
 		LOG.trace( "Cleaning QueryPlan Cache" );
 		queryPlanCache.clear();
 		parameterMetadataCache.clear();
+	}
+
+	public NativeQueryInterpreter getNativeQueryInterpreter() {
+		return nativeQueryInterpreter;
 	}
 
 	private static class ParameterMetadataKey implements Serializable {

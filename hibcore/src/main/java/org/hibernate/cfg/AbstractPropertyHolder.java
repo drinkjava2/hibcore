@@ -6,7 +6,10 @@
  */
 package org.hibernate.cfg;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import javax.persistence.AssociationOverride;
 import javax.persistence.AssociationOverrides;
@@ -25,12 +28,11 @@ import org.hibernate.AssertionFailure;
 import org.hibernate.annotations.common.reflection.XAnnotatedElement;
 import org.hibernate.annotations.common.reflection.XClass;
 import org.hibernate.annotations.common.reflection.XProperty;
-import org.hibernate.boot.internal.AttributeConverterDescriptorImpl;
-import org.hibernate.boot.spi.AttributeConverterDescriptor;
+import org.hibernate.boot.model.convert.internal.ClassBasedConverterDescriptor;
+import org.hibernate.boot.model.convert.spi.ConverterDescriptor;
 import org.hibernate.boot.spi.MetadataBuildingContext;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.util.StringHelper;
-import org.hibernate.internal.util.type.PrimitiveWrapperHelper;
 
 import org.jboss.logging.Logger;
 
@@ -73,7 +75,7 @@ public abstract class AbstractPropertyHolder implements PropertyHolder {
 	protected abstract AttributeConversionInfo locateAttributeConversionInfo(String path);
 
 	@Override
-	public AttributeConverterDescriptor resolveAttributeConverterDescriptor(XProperty property) {
+	public ConverterDescriptor resolveAttributeConverterDescriptor(XProperty property) {
 		AttributeConversionInfo info = locateAttributeConversionInfo( property );
 		if ( info != null ) {
 			if ( info.isConversionDisabled() ) {
@@ -117,26 +119,17 @@ public abstract class AbstractPropertyHolder implements PropertyHolder {
 		}
 	}
 
-	protected AttributeConverterDescriptor makeAttributeConverterDescriptor(AttributeConversionInfo conversion) {
+	protected ConverterDescriptor makeAttributeConverterDescriptor(AttributeConversionInfo conversion) {
 		try {
-			AttributeConverterDefinition definition = new AttributeConverterDefinition( conversion.getConverterClass().newInstance(), false );
-			return AttributeConverterDescriptorImpl.create( definition, context.getMetadataCollector().getClassmateContext() );
+			return new ClassBasedConverterDescriptor(
+					conversion.getConverterClass(),
+					false,
+					context.getBootstrapContext().getClassmateContext()
+			);
 		}
 		catch (Exception e) {
 			throw new AnnotationException( "Unable to create AttributeConverter instance", e );
 		}
-	}
-
-	protected boolean areTypeMatch(Class converterDefinedType, Class propertyType) {
-		if ( converterDefinedType == null ) {
-			throw new AnnotationException( "AttributeConverter defined java type cannot be null" );
-		}
-		if ( propertyType == null ) {
-			throw new AnnotationException( "Property defined java type cannot be null" );
-		}
-
-		return converterDefinedType.equals( propertyType )
-				|| PrimitiveWrapperHelper.arePrimitiveWrapperEquivalents( converterDefinedType, propertyType );
 	}
 
 	@Override
@@ -379,7 +372,7 @@ public abstract class AbstractPropertyHolder implements PropertyHolder {
 		Map<String, JoinColumn[]> joinColumnOverride = new HashMap<String, JoinColumn[]>();
 		Map<String, JoinTable> joinTableOverride = new HashMap<String, JoinTable>();
 		Map<String, ForeignKey> foreignKeyOverride = new HashMap<String, ForeignKey>();
-		while ( current != null && !context.getBuildingOptions().getReflectionManager().toXClass( Object.class ).equals( current ) ) {
+		while ( current != null && !context.getBootstrapContext().getReflectionManager().toXClass( Object.class ).equals( current ) ) {
 			if ( current.isAnnotationPresent( Entity.class ) || current.isAnnotationPresent( MappedSuperclass.class )
 					|| current.isAnnotationPresent( Embeddable.class ) ) {
 				//FIXME is embeddable override?
@@ -422,10 +415,26 @@ public abstract class AbstractPropertyHolder implements PropertyHolder {
 			}
 
 			if ( overrides != null ) {
+				Map<String, List<Column>> columnOverrideList = new HashMap<>();
+
 				for ( AttributeOverride depAttr : overrides ) {
+					String qualifiedName = StringHelper.qualify( path, depAttr.name() );
+
+					if ( columnOverrideList.containsKey( qualifiedName ) ) {
+						columnOverrideList.get( qualifiedName ).add( depAttr.column() );
+					}
+					else {
+						columnOverrideList.put(
+							qualifiedName,
+							new ArrayList<>( Arrays.asList( depAttr.column() ) )
+						);
+					}
+				}
+
+				for (Map.Entry<String, List<Column>> entry : columnOverrideList.entrySet()) {
 					columnOverride.put(
-							StringHelper.qualify( path, depAttr.name() ),
-							new Column[]{ depAttr.column() }
+						entry.getKey(),
+						entry.getValue().toArray( new Column[entry.getValue().size()] )
 					);
 				}
 			}

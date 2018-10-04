@@ -38,9 +38,11 @@ import org.hibernate.hql.internal.ast.tree.FromElement;
 import org.hibernate.hql.internal.ast.tree.InsertStatement;
 import org.hibernate.hql.internal.ast.tree.QueryNode;
 import org.hibernate.hql.internal.ast.tree.Statement;
+import org.hibernate.hql.internal.ast.tree.UpdateStatement;
 import org.hibernate.hql.internal.ast.util.ASTPrinter;
 import org.hibernate.hql.internal.ast.util.ASTUtil;
 import org.hibernate.hql.internal.ast.util.NodeTraverser;
+import org.hibernate.hql.internal.ast.util.TokenPrinters;
 import org.hibernate.hql.spi.FilterTranslator;
 import org.hibernate.hql.spi.ParameterTranslations;
 import org.hibernate.internal.CoreMessageLogger;
@@ -252,11 +254,14 @@ public class QueryTranslatorImpl implements FilterTranslator {
 				LOG.debugf( "SQL: %s", sql );
 			}
 			gen.getParseErrorHandler().throwQueryException();
-			collectedParameterSpecifications = gen.getCollectedParameters();
+			if ( collectedParameterSpecifications == null ) {
+				collectedParameterSpecifications = gen.getCollectedParameters();
+			}
+			else {
+				collectedParameterSpecifications.addAll( gen.getCollectedParameters() );
+			}
 		}
 	}
-
-	private static final ASTPrinter SQL_TOKEN_PRINTER = new ASTPrinter( SqlTokenTypes.class );
 
 	private HqlSqlWalker analyze(HqlParser parser, String collectionRole) throws QueryException, RecognitionException {
 		final HqlSqlWalker w = new HqlSqlWalker( this, factory, parser, tokenReplacements, collectionRole );
@@ -266,7 +271,7 @@ public class QueryTranslatorImpl implements FilterTranslator {
 		w.statement( hqlAst );
 
 		if ( LOG.isDebugEnabled() ) {
-			LOG.debug( SQL_TOKEN_PRINTER.showAsString( w.getAST(), "--- SQL AST ---" ) );
+			LOG.debug( TokenPrinters.SQL_TOKEN_PRINTER.showAsString( w.getAST(), "--- SQL AST ---" ) );
 		}
 
 		w.getParseErrorHandler().throwQueryException();
@@ -274,30 +279,33 @@ public class QueryTranslatorImpl implements FilterTranslator {
 		return w;
 	}
 
-	private HqlParser parse(boolean filter) throws TokenStreamException, RecognitionException {
+	private HqlParser parse(boolean filter) throws TokenStreamException {
 		// Parse the query string into an HQL AST.
 		final HqlParser parser = HqlParser.getInstance( hql );
 		parser.setFilter( filter );
 
 		LOG.debugf( "parse() - HQL: %s", hql );
-		parser.statement();
+		try {
+			parser.statement();
+		}
+		catch (RecognitionException e) {
+			throw new HibernateException( "Unexpected error parsing HQL", e );
+		}
 
 		final AST hqlAst = parser.getAST();
+		parser.getParseErrorHandler().throwQueryException();
 
 		final NodeTraverser walker = new NodeTraverser( new JavaConstantConverter( factory ) );
 		walker.traverseDepthFirst( hqlAst );
 
 		showHqlAst( hqlAst );
 
-		parser.getParseErrorHandler().throwQueryException();
 		return parser;
 	}
 
-	private static final ASTPrinter HQL_TOKEN_PRINTER = new ASTPrinter( HqlTokenTypes.class );
-
 	void showHqlAst(AST hqlAst) {
 		if ( LOG.isDebugEnabled() ) {
-			LOG.debug( HQL_TOKEN_PRINTER.showAsString( hqlAst, "--- HQL AST ---" ) );
+			LOG.debug( TokenPrinters.HQL_TOKEN_PRINTER.showAsString( hqlAst, "--- HQL AST ---" ) );
 		}
 	}
 
@@ -358,11 +366,23 @@ public class QueryTranslatorImpl implements FilterTranslator {
 
 		final QueryNode query = (QueryNode) sqlAst;
 		final boolean hasLimit = queryParameters.getRowSelection() != null && queryParameters.getRowSelection().definesLimits();
-		final boolean needsDistincting = ( query.getSelectClause().isDistinct() || hasLimit ) && containsCollectionFetches();
+		final boolean needsDistincting = (
+				query.getSelectClause().isDistinct() ||
+				getEntityGraphQueryHint() != null ||
+				hasLimit )
+		&& containsCollectionFetches();
 
 		QueryParameters queryParametersToUse;
 		if ( hasLimit && containsCollectionFetches() ) {
-			LOG.firstOrMaxResultsSpecifiedWithCollectionFetch();
+			boolean fail = session.getFactory().getSessionFactoryOptions().isFailOnPaginationOverCollectionFetchEnabled();
+			if (fail) {
+				throw new HibernateException("firstResult/maxResults specified with collection fetch. " +
+						"In memory pagination was about to be applied. " +
+						"Failing because 'Fail on pagination over collection fetch' is enabled.");
+			}
+			else {
+				LOG.firstOrMaxResultsSpecifiedWithCollectionFetch();
+			}
 			RowSelection selection = new RowSelection();
 			selection.setFetchSize( queryParameters.getRowSelection().getFetchSize() );
 			selection.setTimeout( queryParameters.getRowSelection().getTimeout() );
@@ -481,6 +501,10 @@ public class QueryTranslatorImpl implements FilterTranslator {
 		return sqlAst.needsExecutor();
 	}
 	@Override
+	public boolean isUpdateStatement() {
+		return SqlTokenTypes.UPDATE == sqlAst.getStatementType();
+	}
+	@Override
 	public void validateScrollability() throws HibernateException {
 		// Impl Note: allows multiple collection fetches as long as the
 		// entire fecthed graph still "points back" to a single
@@ -522,14 +546,14 @@ public class QueryTranslatorImpl implements FilterTranslator {
 		}
 
 		// This is not strictly true.  We actually just need to make sure that
-		// it is ordered by root-entity PK and that that order-by comes beforeQuery
+		// it is ordered by root-entity PK and that that order-by comes before
 		// any non-root-entity ordering...
 
 		AST primaryOrdering = query.getOrderByClause().getFirstChild();
 		if ( primaryOrdering != null ) {
 			// TODO : this is a bit dodgy, come up with a better way to check this (plus see above comment)
 			String [] idColNames = owner.getQueryable().getIdentifierColumnNames();
-			String expectedPrimaryOrderSeq = StringHelper.join(
+			String expectedPrimaryOrderSeq = String.join(
 					", ",
 					StringHelper.qualify( owner.getTableAlias(), idColNames )
 			);
@@ -574,7 +598,7 @@ public class QueryTranslatorImpl implements FilterTranslator {
 	@Override
 	public ParameterTranslations getParameterTranslations() {
 		if ( paramTranslations == null ) {
-			paramTranslations = new ParameterTranslationsImpl( getWalker().getParameters() );
+			paramTranslations = new ParameterTranslationsImpl( getWalker().getParameterSpecs() );
 		}
 		return paramTranslations;
 	}

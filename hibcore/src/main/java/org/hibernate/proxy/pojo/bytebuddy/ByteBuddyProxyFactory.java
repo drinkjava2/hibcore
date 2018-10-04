@@ -6,48 +6,28 @@
  */
 package org.hibernate.proxy.pojo.bytebuddy;
 
+import static org.hibernate.internal.CoreLogging.messageLogger;
+
 import java.io.Serializable;
 import java.lang.reflect.Method;
-import java.lang.reflect.Type;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
-import net.bytebuddy.TypeCache;
 import org.hibernate.HibernateException;
+import org.hibernate.cfg.Environment;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.internal.util.ReflectHelper;
 import org.hibernate.internal.util.collections.ArrayHelper;
 import org.hibernate.proxy.HibernateProxy;
-import org.hibernate.proxy.ProxyFactory;
 import org.hibernate.proxy.ProxyConfiguration;
+import org.hibernate.proxy.ProxyFactory;
 import org.hibernate.type.CompositeType;
 
-import net.bytebuddy.ByteBuddy;
-import net.bytebuddy.NamingStrategy;
-import net.bytebuddy.description.modifier.Visibility;
-import net.bytebuddy.dynamic.scaffold.TypeValidation;
-import net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy;
-import net.bytebuddy.implementation.FieldAccessor;
-import net.bytebuddy.implementation.FixedValue;
-import net.bytebuddy.implementation.MethodDelegation;
-import net.bytebuddy.implementation.SuperMethodCall;
-import net.bytebuddy.implementation.bytecode.assign.Assigner;
-import net.bytebuddy.matcher.ElementMatchers;
-
-import static net.bytebuddy.matcher.ElementMatchers.named;
-import static org.hibernate.internal.CoreLogging.messageLogger;
-
 public class ByteBuddyProxyFactory implements ProxyFactory, Serializable {
+
 	private static final CoreMessageLogger LOG = messageLogger( ByteBuddyProxyFactory.class );
 
-	private static final TypeCache<TypeCache.SimpleKey> CACHE =
-			new TypeCache.WithInlineExpunction<TypeCache.SimpleKey>(TypeCache.Sort.SOFT);
+	private final ByteBuddyProxyHelper byteBuddyProxyHelper;
 
 	private Class persistentClass;
 	private String entityName;
@@ -58,6 +38,10 @@ public class ByteBuddyProxyFactory implements ProxyFactory, Serializable {
 	private boolean overridesEquals;
 
 	private Class proxyClass;
+
+	public ByteBuddyProxyFactory(ByteBuddyProxyHelper byteBuddyProxyHelper) {
+		this.byteBuddyProxyHelper = byteBuddyProxyHelper;
+	}
 
 	@Override
 	public void postInstantiate(
@@ -75,7 +59,7 @@ public class ByteBuddyProxyFactory implements ProxyFactory, Serializable {
 		this.componentIdType = componentIdType;
 		this.overridesEquals = ReflectHelper.overridesEquals( persistentClass );
 
-		this.proxyClass = buildProxy( persistentClass, this.interfaces );
+		this.proxyClass = byteBuddyProxyHelper.buildProxy( persistentClass, this.interfaces );
 	}
 
 	private Class[] toArray(Set<Class> interfaces) {
@@ -84,37 +68,6 @@ public class ByteBuddyProxyFactory implements ProxyFactory, Serializable {
 		}
 
 		return interfaces.toArray( new Class[interfaces.size()] );
-	}
-
-	public static Class buildProxy(
-			final Class persistentClass,
-			final Class[] interfaces) {
-		Set<Class<?>> key = new HashSet<Class<?>>();
-		if ( interfaces.length == 1 ) {
-			key.add( persistentClass );
-		}
-		key.addAll( Arrays.<Class<?>>asList( interfaces ) );
-
-		return CACHE.findOrInsert(persistentClass.getClassLoader(), new TypeCache.SimpleKey(key), new Callable<Class<?>>() {
-			@Override
-			public Class<?> call() throws Exception {
-				return new ByteBuddy()
-						.with(TypeValidation.DISABLED)
-						.with(new NamingStrategy.SuffixingRandom("HibernateProxy"))
-						.subclass(interfaces.length == 1 ? persistentClass : Object.class, ConstructorStrategy.Default.IMITATE_SUPER_CLASS_OPENING)
-						.implement((Type[]) interfaces)
-						.method(ElementMatchers.isVirtual().and(ElementMatchers.not(ElementMatchers.isFinalizer())))
-						.intercept(MethodDelegation.to(ProxyConfiguration.InterceptorDispatcher.class))
-						.method(ElementMatchers.nameStartsWith("$$_hibernate_").and(ElementMatchers.isVirtual()))
-						.intercept(SuperMethodCall.INSTANCE)
-						.defineField(ProxyConfiguration.INTERCEPTOR_FIELD_NAME, ProxyConfiguration.Interceptor.class, Visibility.PRIVATE)
-						.implement(ProxyConfiguration.class)
-						.intercept(FieldAccessor.ofField(ProxyConfiguration.INTERCEPTOR_FIELD_NAME).withAssigner(Assigner.DEFAULT, Assigner.Typing.DYNAMIC))
-						.make()
-						.load(persistentClass.getClassLoader())
-						.getLoaded();
-			}
-		}, CACHE);
 	}
 
 	@Override
@@ -142,85 +95,6 @@ public class ByteBuddyProxyFactory implements ProxyFactory, Serializable {
 		catch (Throwable t) {
 			LOG.error( LOG.bytecodeEnhancementFailed( entityName ), t );
 			throw new HibernateException( LOG.bytecodeEnhancementFailed( entityName ), t );
-		}
-	}
-
-	public static HibernateProxy deserializeProxy(SerializableProxy serializableProxy) {
-		final ByteBuddyInterceptor interceptor = new ByteBuddyInterceptor(
-				serializableProxy.getEntityName(),
-				serializableProxy.getPersistentClass(),
-				serializableProxy.getInterfaces(),
-				serializableProxy.getId(),
-				resolveIdGetterMethod( serializableProxy ),
-				resolveIdSetterMethod( serializableProxy ),
-				serializableProxy.getComponentIdType(),
-				null,
-				ReflectHelper.overridesEquals( serializableProxy.getPersistentClass() )
-		);
-
-		// note: interface is assumed to already contain HibernateProxy.class
-		try {
-			final Class proxyClass = buildProxy(
-					serializableProxy.getPersistentClass(),
-					serializableProxy.getInterfaces()
-			);
-			final HibernateProxy proxy = (HibernateProxy) proxyClass.newInstance();
-			( (ProxyConfiguration) proxy ).$$_hibernate_set_interceptor( interceptor );
-			return proxy;
-		}
-		catch (Throwable t) {
-			final String message = LOG.bytecodeEnhancementFailed( serializableProxy.getEntityName() );
-			LOG.error( message, t );
-			throw new HibernateException( message, t );
-		}
-	}
-
-	@SuppressWarnings("unchecked")
-	private static Method resolveIdGetterMethod(SerializableProxy serializableProxy) {
-		if ( serializableProxy.getIdentifierGetterMethodName() == null ) {
-			return null;
-		}
-
-		try {
-			return serializableProxy.getIdentifierGetterMethodClass().getDeclaredMethod( serializableProxy.getIdentifierGetterMethodName() );
-		}
-		catch (NoSuchMethodException e) {
-			throw new HibernateException(
-					String.format(
-							Locale.ENGLISH,
-							"Unable to deserialize proxy [%s, %s]; could not locate id getter method [%s] on entity class [%s]",
-							serializableProxy.getEntityName(),
-							serializableProxy.getId(),
-							serializableProxy.getIdentifierGetterMethodName(),
-							serializableProxy.getIdentifierGetterMethodClass()
-					)
-			);
-		}
-	}
-
-	@SuppressWarnings("unchecked")
-	private static Method resolveIdSetterMethod(SerializableProxy serializableProxy) {
-		if ( serializableProxy.getIdentifierSetterMethodName() == null ) {
-			return null;
-		}
-
-		try {
-			return serializableProxy.getIdentifierSetterMethodClass().getDeclaredMethod(
-					serializableProxy.getIdentifierSetterMethodName(),
-					serializableProxy.getIdentifierSetterMethodParams()
-			);
-		}
-		catch (NoSuchMethodException e) {
-			throw new HibernateException(
-					String.format(
-							Locale.ENGLISH,
-							"Unable to deserialize proxy [%s, %s]; could not locate id setter method [%s] on entity class [%s]",
-							serializableProxy.getEntityName(),
-							serializableProxy.getId(),
-							serializableProxy.getIdentifierSetterMethodName(),
-							serializableProxy.getIdentifierSetterMethodClass()
-					)
-			);
 		}
 	}
 }

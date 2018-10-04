@@ -198,7 +198,7 @@ public class SchemaExport {
 	/**
 	 * Should we stop once an error occurs?
 	 *
-	 * @param haltOnError True if export should stop afterQuery error.
+	 * @param haltOnError True if export should stop after error.
 	 *
 	 * @return this
 	 */
@@ -356,7 +356,6 @@ public class SchemaExport {
 		}
 		catch (Exception e) {
 			LOG.unableToCreateSchema( e );
-			e.printStackTrace();
 		}
 	}
 

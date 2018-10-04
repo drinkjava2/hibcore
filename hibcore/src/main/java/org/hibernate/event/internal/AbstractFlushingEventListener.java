@@ -7,6 +7,7 @@
 package org.hibernate.event.internal;
 
 import java.io.Serializable;
+import java.util.IdentityHashMap;
 import java.util.Map;
 
 import org.hibernate.HibernateException;
@@ -28,6 +29,7 @@ import org.hibernate.engine.spi.PersistenceContext;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.engine.spi.Status;
 import org.hibernate.event.service.spi.EventListenerRegistry;
+import org.hibernate.event.service.spi.JpaBootstrapSensitive;
 import org.hibernate.event.spi.EventSource;
 import org.hibernate.event.spi.EventType;
 import org.hibernate.event.spi.FlushEntityEvent;
@@ -46,9 +48,16 @@ import org.jboss.logging.Logger;
  *
  * @author Steve Ebersole
  */
-public abstract class AbstractFlushingEventListener implements Serializable {
+public abstract class AbstractFlushingEventListener implements JpaBootstrapSensitive, Serializable {
 
 	private static final CoreMessageLogger LOG = Logger.getMessageLogger( CoreMessageLogger.class, AbstractFlushingEventListener.class.getName() );
+
+	private boolean jpaBootstrap;
+
+	@Override
+	public void wasJpaBootstrap(boolean wasJpaBootstrap) {
+		this.jpaBootstrap = wasJpaBootstrap;
+	}
 
 	// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	// Pre-flushing section
@@ -155,11 +164,21 @@ public abstract class AbstractFlushingEventListener implements Serializable {
 	}
 
 	protected Object getAnything() {
-		return null;
+		if ( jpaBootstrap ) {
+			return new IdentityHashMap( 10 );
+		}
+		else {
+			return null;
+		}
 	}
 
 	protected CascadingAction getCascadingAction() {
-		return CascadingActions.SAVE_UPDATE;
+		if ( jpaBootstrap ) {
+			return CascadingActions.PERSIST_ON_FLUSH;
+		}
+		else {
+			return CascadingActions.SAVE_UPDATE;
+		}
 	}
 
 	/**
@@ -331,7 +350,7 @@ public abstract class AbstractFlushingEventListener implements Serializable {
 		try {
 			session.getJdbcCoordinator().flushBeginning();
 			session.getPersistenceContext().setFlushing( true );
-			// we need to lock the collection caches beforeQuery executing entity inserts/updates in order to
+			// we need to lock the collection caches before executing entity inserts/updates in order to
 			// account for bi-directional associations
 			session.getActionQueue().prepareActions();
 			session.getActionQueue().executeActions();

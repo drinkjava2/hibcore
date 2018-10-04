@@ -24,7 +24,7 @@ import org.hibernate.QueryException;
 import org.hibernate.TransientObjectException;
 import org.hibernate.boot.model.relational.Database;
 import org.hibernate.cache.CacheException;
-import org.hibernate.cache.spi.access.CollectionRegionAccessStrategy;
+import org.hibernate.cache.spi.access.CollectionDataAccess;
 import org.hibernate.cache.spi.entry.CacheEntryStructure;
 import org.hibernate.cache.spi.entry.StructuredCollectionCacheEntry;
 import org.hibernate.cache.spi.entry.StructuredMapCacheEntry;
@@ -60,6 +60,7 @@ import org.hibernate.mapping.List;
 import org.hibernate.mapping.Selectable;
 import org.hibernate.mapping.Table;
 import org.hibernate.metadata.CollectionMetadata;
+import org.hibernate.metamodel.model.domain.NavigableRole;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.Loadable;
 import org.hibernate.persister.entity.PropertyMapping;
@@ -111,7 +112,7 @@ public abstract class AbstractCollectionPersister
 
 	// TODO: encapsulate the protected instance variables!
 
-	private final String role;
+	private final NavigableRole navigableRole;
 
 	// SQL statements
 	private final String sqlDeleteString;
@@ -198,7 +199,7 @@ public abstract class AbstractCollectionPersister
 	private final IdentifierGenerator identifierGenerator;
 	private final PropertyMapping elementPropertyMapping;
 	private final EntityPersister elementPersister;
-	private final CollectionRegionAccessStrategy cacheAccessStrategy;
+	private final CollectionDataAccess cacheAccessStrategy;
 	private final CollectionType collectionType;
 	private CollectionInitializer initializer;
 
@@ -230,7 +231,7 @@ public abstract class AbstractCollectionPersister
 
 	public AbstractCollectionPersister(
 			Collection collectionBinding,
-			CollectionRegionAccessStrategy cacheAccessStrategy,
+			CollectionDataAccess cacheAccessStrategy,
 			PersisterCreationContext creationContext) throws MappingException, CacheException {
 
 		final Database database = creationContext.getMetadata().getDatabase();
@@ -250,7 +251,7 @@ public abstract class AbstractCollectionPersister
 		dialect = factory.getDialect();
 		sqlExceptionHelper = factory.getSQLExceptionHelper();
 		collectionType = collectionBinding.getCollectionType();
-		role = collectionBinding.getRole();
+		navigableRole = new NavigableRole( collectionBinding.getRole() );
 		entityName = collectionBinding.getOwnerEntityName();
 		ownerPersister = factory.getEntityPersister( entityName );
 		queryLoaderName = collectionBinding.getLoaderName();
@@ -551,6 +552,7 @@ public abstract class AbstractCollectionPersister
 
 		hasOrder = collectionBinding.getOrderBy() != null;
 		if ( hasOrder ) {
+			LOG.debugf( "Translating order-by fragment [%s] for collection role : %s",  collectionBinding.getOrderBy(), getRole() );
 			orderByTranslation = Template.translateOrderBy(
 					collectionBinding.getOrderBy(),
 					new ColumnMapperImpl(),
@@ -577,6 +579,7 @@ public abstract class AbstractCollectionPersister
 
 		hasManyToManyOrder = collectionBinding.getManyToManyOrdering() != null;
 		if ( hasManyToManyOrder ) {
+			LOG.debugf( "Translating many-to-many order-by fragment [%s] for collection role : %s",  collectionBinding.getOrderBy(), getRole() );
 			manyToManyOrderByTranslation = Template.translateOrderBy(
 					collectionBinding.getManyToManyOrdering(),
 					new ColumnMapperImpl(),
@@ -742,7 +745,12 @@ public abstract class AbstractCollectionPersister
 			throws MappingException;
 
 	@Override
-	public CollectionRegionAccessStrategy getCacheAccessStrategy() {
+	public NavigableRole getNavigableRole() {
+		return navigableRole;
+	}
+
+	@Override
+	public CollectionDataAccess getCacheAccessStrategy() {
 		return cacheAccessStrategy;
 	}
 
@@ -844,7 +852,7 @@ public abstract class AbstractCollectionPersister
 			throws HibernateException, SQLException {
 		Object index = getIndexType().nullSafeGet( rs, aliases, session, null );
 		if ( index == null ) {
-			throw new HibernateException( "null index column for collection: " + role );
+			throw new HibernateException( "null index column for collection: " + navigableRole.getFullPath() );
 		}
 		index = decrementIndexByBase( index );
 		return index;
@@ -862,7 +870,7 @@ public abstract class AbstractCollectionPersister
 			throws HibernateException, SQLException {
 		Object id = getIdentifierType().nullSafeGet( rs, alias, session, null );
 		if ( id == null ) {
-			throw new HibernateException( "null identifier column for collection: " + role );
+			throw new HibernateException( "null identifier column for collection: " + navigableRole.getFullPath() );
 		}
 		return id;
 	}
@@ -870,7 +878,16 @@ public abstract class AbstractCollectionPersister
 	@Override
 	public Object readKey(ResultSet rs, String[] aliases, SharedSessionContractImplementor session)
 			throws HibernateException, SQLException {
-		return getKeyType().nullSafeGet( rs, aliases, session, null );
+		// First hydrate the collection key to check if it is null.
+		// Don't bother resolving the collection key if the hydrated value is null.
+
+		// Implementation note: if collection key is a composite value, then resolving a null value will
+		// result in instantiating an empty composite if AvailableSettings#CREATE_EMPTY_COMPOSITES_ENABLED
+		// is true. By not resolving a null value for a composite key, we avoid the overhead of instantiating
+		// an empty composite, checking if it is equivalent to null (it should be), then ultimately throwing
+		// out the empty value.
+		final Object hydratedKey = getKeyType().hydrate( rs, aliases, session, null );
+		return hydratedKey == null ? null : getKeyType().resolve( hydratedKey, session, null );
 	}
 
 	/**
@@ -880,7 +897,7 @@ public abstract class AbstractCollectionPersister
 			throws HibernateException, SQLException {
 
 		if ( key == null ) {
-			throw new NullPointerException( "null key for collection: " + role ); // an assertion
+			throw new NullPointerException( "null key for collection: " + navigableRole.getFullPath() ); // an assertion
 		}
 		getKeyType().nullSafeSet( st, key, i, session );
 		return i + keyColumnAliases.length;
@@ -1592,7 +1609,7 @@ public abstract class AbstractCollectionPersister
 
 	@Override
 	public String getRole() {
-		return role;
+		return navigableRole.getFullPath();
 	}
 
 	public String getOwnerEntityName() {
@@ -1713,7 +1730,7 @@ public abstract class AbstractCollectionPersister
 
 		if ( !isInverse && collection.isRowUpdatePossible() ) {
 
-			LOG.debugf( "Updating rows of collection: %s#%s", role, id );
+			LOG.debugf( "Updating rows of collection: %s#%s", navigableRole.getFullPath(), id );
 
 			// update all the modified entries
 			int count = doUpdateRows( id, collection, session );
@@ -1835,7 +1852,7 @@ public abstract class AbstractCollectionPersister
 
 	@Override
 	public String toString() {
-		return StringHelper.unqualify( getClass().getName() ) + '(' + role + ')';
+		return StringHelper.unqualify( getClass().getName() ) + '(' + navigableRole.getFullPath() + ')';
 	}
 
 	@Override

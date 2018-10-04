@@ -181,7 +181,7 @@ public class PojoEntityTuplizer extends AbstractEntityTuplizer {
 			PersistentClass persistentClass,
 			Getter idGetter,
 			Setter idSetter) {
-		// TODO : YUCK!!!  fix afterQuery HHH-1907 is complete
+		// TODO : YUCK!!!  fix after HHH-1907 is complete
 		return Environment.getBytecodeProvider().getProxyFactoryFactory().buildProxyFactory( getFactory() );
 //		return getFactory().getSettings().getBytecodeProvider().getProxyFactoryFactory().buildProxyFactory();
 	}
@@ -300,6 +300,10 @@ public class PojoEntityTuplizer extends AbstractEntityTuplizer {
 
 	@Override
 	public String determineConcreteSubclassEntityName(Object entityInstance, SessionFactoryImplementor factory) {
+		if ( entityInstance == null ) {
+			return getEntityName();
+		}
+
 		final Class concreteEntityClass = entityInstance.getClass();
 		if ( concreteEntityClass == getMappedClass() ) {
 			return getEntityName();

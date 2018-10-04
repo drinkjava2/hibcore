@@ -25,6 +25,7 @@ import org.hibernate.annotations.common.AssertionFailure;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.internal.EntityManagerMessageLogger;
 import org.hibernate.internal.HEMLogging;
+import org.hibernate.internal.util.ReflectHelper;
 import org.hibernate.internal.util.collections.CollectionHelper;
 import org.hibernate.mapping.Component;
 import org.hibernate.mapping.KeyValue;
@@ -56,7 +57,7 @@ class MetadataContext {
 	private Map<Class<?>, EntityTypeImpl<?>> entityTypes = new HashMap<>();
 	private Map<String, EntityTypeImpl<?>> entityTypesByEntityName = new HashMap<>();
 	private Map<PersistentClass, EntityTypeImpl<?>> entityTypesByPersistentClass = new HashMap<>();
-	private Map<Class<?>, EmbeddableTypeImpl<?>> embeddables = new HashMap<>();
+	private Set<EmbeddableTypeImpl<?>> embeddables = new HashSet<>();
 	private Map<MappedSuperclass, MappedSuperclassTypeImpl<?>> mappedSuperclassByMappedSuperclassMapping = new HashMap<>();
 	//this list contains MappedSuperclass and EntityTypes ordered by superclass first
 	private List<Object> orderedMappings = new ArrayList<>();
@@ -92,8 +93,8 @@ class MetadataContext {
 		return Collections.unmodifiableMap( entityTypes );
 	}
 
-	public Map<Class<?>, EmbeddableTypeImpl<?>> getEmbeddableTypeMap() {
-		return Collections.unmodifiableMap( embeddables );
+	public Set<EmbeddableTypeImpl<?>> getEmbeddableTypeMap() {
+		return Collections.unmodifiableSet( embeddables );
 	}
 
 	public Map<Class<?>, MappedSuperclassType<?>> getMappedSuperclassTypeMap() {
@@ -113,16 +114,23 @@ class MetadataContext {
 	}
 
 	/*package*/ void registerEntityType(PersistentClass persistentClass, EntityTypeImpl<?> entityType) {
+		if ( ignoreUnsupported && entityType.getBindableJavaType() == null ) {
+			return;
+		}
+
 		if ( entityType.getBindableJavaType() != null ) {
 			entityTypes.put( entityType.getBindableJavaType(), entityType );
 		}
+
 		entityTypesByEntityName.put( persistentClass.getEntityName(), entityType );
 		entityTypesByPersistentClass.put( persistentClass, entityType );
 		orderedMappings.add( persistentClass );
 	}
 
 	/*package*/ void registerEmbeddedableType(EmbeddableTypeImpl<?> embeddableType) {
-		embeddables.put( embeddableType.getJavaType(), embeddableType );
+		if ( !( ignoreUnsupported && embeddableType.getParent().getJavaType() == null ) ) {
+			embeddables.add( embeddableType );
+		}
 	}
 
 	/*package*/ void registerMappedSuperclassType(
@@ -267,7 +275,7 @@ class MetadataContext {
 		}
 
 		if ( staticMetamodelScanEnabled ) {
-			for ( EmbeddableTypeImpl embeddable : embeddables.values() ) {
+			for ( EmbeddableTypeImpl embeddable : embeddables ) {
 				populateStaticMetamodel( embeddable );
 			}
 		}
@@ -318,7 +326,7 @@ class MetadataContext {
 				);
 			}
 		}
-		//an MappedSuperclass can have no identifier if the id is set below in the hierarchy
+		//a MappedSuperclass can have no identifier if the id is set below in the hierarchy
 		else if ( mappingType.getIdentifierMapper() != null ) {
 			@SuppressWarnings("unchecked")
 			Iterator<Property> propertyIterator = mappingType.getIdentifierMapper().getPropertyIterator();
@@ -437,7 +445,7 @@ class MetadataContext {
 					: metamodelClass.getDeclaredField( name );
 			try {
 				// should be public anyway, but to be sure...
-				field.setAccessible( true );
+				ReflectHelper.ensureAccessibility( field );
 				field.set( null, attribute );
 			}
 			catch (IllegalAccessException e) {

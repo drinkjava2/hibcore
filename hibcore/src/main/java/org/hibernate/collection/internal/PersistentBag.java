@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.ListIterator;
 
 import org.hibernate.HibernateException;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.loader.CollectionAliases;
 import org.hibernate.persister.collection.CollectionPersister;
@@ -53,6 +54,17 @@ public class PersistentBag extends AbstractPersistentCollection implements List 
 	 * Constructs a PersistentBag
 	 *
 	 * @param session The session
+	 *
+	 * @deprecated {@link #PersistentBag(SharedSessionContractImplementor)} should be used instead.
+	 */
+	@Deprecated
+	public PersistentBag(SessionImplementor session) {
+		this( ( SharedSessionContractImplementor) session );
+	}
+	/**
+	 * Constructs a PersistentBag
+	 *
+	 * @param session The session
 	 * @param coll The base elements.
 	 */
 	@SuppressWarnings("unchecked")
@@ -69,6 +81,20 @@ public class PersistentBag extends AbstractPersistentCollection implements List 
 		}
 		setInitialized();
 		setDirectlyAccessible( true );
+	}
+
+	/**
+	 * Constructs a PersistentBag
+	 *
+	 * @param session The session
+	 * @param coll The base elements.
+	 *
+	 * @deprecated {@link #PersistentBag(SharedSessionContractImplementor, Collection)}
+	 *             should be used instead.
+	 */
+	@Deprecated
+	public PersistentBag(SessionImplementor session, Collection coll) {
+		this( (SharedSessionContractImplementor) session, coll );
 	}
 
 	@Override
@@ -307,6 +333,7 @@ public class PersistentBag extends AbstractPersistentCollection implements List 
 	public boolean remove(Object o) {
 		initialize( true );
 		if ( bag.remove( o ) ) {
+			elementRemoved = true;
 			dirty();
 			return true;
 		}
@@ -346,6 +373,7 @@ public class PersistentBag extends AbstractPersistentCollection implements List 
 		if ( c.size()>0 ) {
 			initialize( true );
 			if ( bag.removeAll( c ) ) {
+				elementRemoved = true;
 				dirty();
 				return true;
 			}

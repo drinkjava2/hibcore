@@ -21,11 +21,14 @@ import org.hibernate.Interceptor;
 import org.hibernate.ScrollMode;
 import org.hibernate.SharedSessionContract;
 import org.hibernate.Transaction;
+import org.hibernate.cache.spi.CacheTransactionSynchronization;
+import org.hibernate.cfg.Environment;
 import org.hibernate.collection.spi.PersistentCollection;
 import org.hibernate.engine.jdbc.LobCreationContext;
 import org.hibernate.engine.jdbc.spi.JdbcCoordinator;
 import org.hibernate.engine.jdbc.spi.JdbcServices;
 import org.hibernate.engine.query.spi.sql.NativeSQLQuerySpecification;
+import org.hibernate.internal.util.config.ConfigurationHelper;
 import org.hibernate.loader.custom.CustomQuery;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.query.spi.QueryProducerImplementor;
@@ -117,6 +120,15 @@ public interface SharedSessionContractImplementor
 	boolean isClosed();
 
 	/**
+	 * Checks whether the session is open or is waiting for auto-close
+	 *
+	 * @return {@code true} if the session is closed or if it's waiting for auto-close; {@code false} otherwise.
+	 */
+	default boolean isOpenOrWaitingForAutoClose() {
+		return !isClosed();
+	}
+
+	/**
 	 * Performs a check whether the Session is open, and if not:<ul>
 	 *     <li>marks current transaction (if one) for rollback only</li>
 	 *     <li>throws an IllegalStateException (JPA defines the exception type)</li>
@@ -140,9 +152,27 @@ public interface SharedSessionContractImplementor
 	void markForRollbackOnly();
 
 	/**
-	 * System time beforeQuery the start of the transaction
+	 * A "timestamp" at or before the start of the current transaction.
+	 *
+	 * @apiNote This "timestamp" need not be related to timestamp in the Java Date/millisecond
+	 * sense.  It just needs to be an incrementing value.  See
+	 * {@link CacheTransactionSynchronization#getCurrentTransactionStartTimestamp()}
 	 */
-	long getTimestamp();
+	long getTransactionStartTimestamp();
+
+	/**
+	 * @deprecated (since 5.3) Use
+	 */
+	@Deprecated
+	default long getTimestamp() {
+		return getTransactionStartTimestamp();
+	}
+
+	/**
+	 * The current CacheTransactionContext associated with the Session.  This may
+	 * return {@code null} when the Session is not currently part of a transaction.
+	 */
+	CacheTransactionSynchronization getCacheTransactionSynchronization();
 
 	/**
 	 * Does this <tt>Session</tt> have an active Hibernate transaction
@@ -177,7 +207,7 @@ public interface SharedSessionContractImplementor
 	Interceptor getInterceptor();
 
 	/**
-	 * Enable/disable automatic cache clearing from afterQuery transaction
+	 * Enable/disable automatic cache clearing from after transaction
 	 * completion (for EJB3)
 	 */
 	void setAutoClear(boolean enabled);
@@ -399,6 +429,10 @@ public interface SharedSessionContractImplementor
 
 	boolean isAutoCloseSessionEnabled();
 
+	default boolean isQueryParametersValidationEnabled(){
+		return getFactory().getSessionFactoryOptions().isQueryParametersValidationEnabled();
+	}
+
 	/**
 	 * Get the load query influencers associated with this session.
 	 *
@@ -408,4 +442,28 @@ public interface SharedSessionContractImplementor
 	LoadQueryInfluencers getLoadQueryInfluencers();
 
 	ExceptionConverter getExceptionConverter();
+
+	/**
+	 * Get the currently configured JDBC batch size either at the Session-level or SessionFactory-level.
+	 *
+	 * If the Session-level JDBC batch size was not configured, return the SessionFactory-level one.
+	 *
+	 * @return Session-level or or SessionFactory-level JDBC batch size.
+	 *
+	 * @since 5.2
+	 *
+	 * @see org.hibernate.boot.spi.SessionFactoryOptions#getJdbcBatchSize
+	 * @see org.hibernate.boot.SessionFactoryBuilder#applyJdbcBatchSize
+	 */
+	default Integer getConfiguredJdbcBatchSize() {
+		final Integer sessionJdbcBatchSize = getJdbcBatchSize();
+
+		return sessionJdbcBatchSize == null ?
+			ConfigurationHelper.getInt(
+					Environment.STATEMENT_BATCH_SIZE,
+					getFactory().getProperties(),
+					1
+			) :
+			sessionJdbcBatchSize;
+	}
 }

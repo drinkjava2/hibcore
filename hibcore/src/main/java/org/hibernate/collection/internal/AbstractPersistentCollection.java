@@ -26,6 +26,7 @@ import org.hibernate.engine.internal.ForeignKeys;
 import org.hibernate.engine.spi.CollectionEntry;
 import org.hibernate.engine.spi.EntityEntry;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.engine.spi.Status;
 import org.hibernate.engine.spi.TypedValue;
@@ -33,7 +34,6 @@ import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.internal.SessionFactoryRegistry;
 import org.hibernate.internal.util.MarkerObject;
-import org.hibernate.internal.util.collections.EmptyIterator;
 import org.hibernate.internal.util.collections.IdentitySet;
 import org.hibernate.persister.collection.CollectionPersister;
 import org.hibernate.persister.entity.EntityPersister;
@@ -69,6 +69,7 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 	// collections detect changes made via their public interface and mark
 	// themselves as dirty as a performance optimization
 	private boolean dirty;
+	protected boolean elementRemoved;
 	private Serializable storedSnapshot;
 
 	private String sessionFactoryUuid;
@@ -83,6 +84,14 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 
 	protected AbstractPersistentCollection(SharedSessionContractImplementor session) {
 		this.session = session;
+	}
+
+	/**
+	 *  * @deprecated {@link #AbstractPersistentCollection(SharedSessionContractImplementor)} should be used instead.
+	 */
+	@Deprecated
+	protected AbstractPersistentCollection(SessionImplementor session) {
+		this( (SharedSessionContractImplementor) session );
 	}
 
 	@Override
@@ -106,8 +115,14 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 	}
 
 	@Override
+	public boolean isElementRemoved() {
+		return elementRemoved;
+	}
+
+	@Override
 	public final void clearDirty() {
 		dirty = false;
+		elementRemoved = false;
 	}
 
 	@Override
@@ -201,7 +216,7 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 				throwLazyInitializationException( "could not initialize proxy - no Session" );
 			}
 		}
-		else if ( !session.isOpen() ) {
+		else if ( !session.isOpenOrWaitingForAutoClose() ) {
 			if ( allowLoadOutsideTransaction ) {
 				tempSession = openTemporarySessionForLoading();
 			}
@@ -533,7 +548,7 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 	@Override
 	public boolean afterInitialize() {
 		setInitialized();
-		//do this bit afterQuery setting initialized to true or it will recurse
+		//do this bit after setting initialized to true or it will recurse
 		if ( operationQueue != null ) {
 			performQueuedOperations();
 			operationQueue = null;
@@ -777,7 +792,7 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 			};
 		}
 		else {
-			return EmptyIterator.INSTANCE;
+			return Collections.emptyIterator();
 		}
 	}
 
@@ -1273,6 +1288,26 @@ public abstract class AbstractPersistentCollection implements Serializable, Pers
 			}
 
 		}
+	}
+
+	/**
+	 * Removes entity entries that have an equal identifier with the incoming entity instance
+	 *
+	 * @param list The list containing the entity instances
+	 * @param entityInstance The entity instance to match elements.
+	 * @param entityName The entity name
+	 * @param session The session
+	 *
+	 * @deprecated {@link #identityRemove(Collection, Object, String, SharedSessionContractImplementor)}
+	 *             should be used instead.
+	 */
+	@Deprecated
+	public static void identityRemove(
+			Collection list,
+			Object entityInstance,
+			String entityName,
+			SessionImplementor session) {
+		identityRemove( list, entityInstance, entityName, (SharedSessionContractImplementor) session );
 	}
 
 	@Override

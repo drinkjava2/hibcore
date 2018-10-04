@@ -95,7 +95,7 @@ public class IdentNode extends FromReferenceNode implements SelectExpression {
 	}
 	
 	private void initText(String[] columns) {
-		String text = StringHelper.join( ", ", columns );
+		String text = String.join( ", ", columns );
 		if ( columns.length > 1 && getWalker().isComparativeExpressionClause() ) {
 			text = "(" + text + ")";
 		}
@@ -197,14 +197,6 @@ public class IdentNode extends FromReferenceNode implements SelectExpression {
 
 		String[] columnExpressions = element.getIdentityColumns();
 
-		// determine whether to apply qualification (table alias) to the column(s)...
-		if ( ! isFromElementUpdateOrDeleteRoot( element ) ) {
-			if ( StringHelper.isNotEmpty( element.getTableAlias() ) ) {
-				// apparently we also need to check that they are not already qualified.  Ugh!
-				columnExpressions = StringHelper.qualifyIfNot( element.getTableAlias(), columnExpressions );
-			}
-		}
-
 		final Dialect dialect = getWalker().getSessionFactoryHelper().getFactory().getDialect();
 		final boolean isInCount = getWalker().isInCount();
 		final boolean isInDistinctCount = isInCount && getWalker().isInCountDistinct();
@@ -216,7 +208,7 @@ public class IdentNode extends FromReferenceNode implements SelectExpression {
 				setText( columnExpressions[0] );
 			}
 			else {
-				String joinedFragment = StringHelper.join( ", ", columnExpressions );
+				String joinedFragment = String.join( ", ", columnExpressions );
 				// avoid wrapping in parenthesis (explicit tuple treatment) if possible due to varied support for
 				// tuple syntax across databases..
 				final boolean shouldSkipWrappingInParenthesis =
@@ -277,7 +269,7 @@ public class IdentNode extends FromReferenceNode implements SelectExpression {
 		String[] columns = getWalker().isSelectStatement()
 				? persister.toColumns(fromElement.getTableAlias(), property)
 				: persister.toColumns(property);
-		String text = StringHelper.join(", ", columns);
+		String text = String.join(", ", columns);
 		setText(columns.length == 1 ? text : "(" + text + ")");
 		setType(SqlTokenTypes.SQL_TOKEN);
 

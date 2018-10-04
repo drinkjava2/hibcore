@@ -9,6 +9,7 @@ package org.hibernate.event.internal;
 import java.io.Serializable;
 import java.util.Map;
 
+import org.hibernate.FlushMode;
 import org.hibernate.LockMode;
 import org.hibernate.NonUniqueObjectException;
 import org.hibernate.action.internal.AbstractEntityInsertAction;
@@ -31,21 +32,34 @@ import org.hibernate.id.IdentifierGenerationException;
 import org.hibernate.id.IdentifierGeneratorHelper;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
+import org.hibernate.jpa.event.spi.CallbackRegistry;
+import org.hibernate.jpa.event.spi.CallbackRegistryConsumer;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.pretty.MessageHelper;
 import org.hibernate.type.Type;
 import org.hibernate.type.TypeHelper;
 
+import static org.hibernate.FlushMode.COMMIT;
+import static org.hibernate.FlushMode.MANUAL;
+
 /**
- * A convenience bas class for listeners responding to save events.
+ * A convenience base class for listeners responding to save events.
  *
  * @author Steve Ebersole.
  */
-public abstract class AbstractSaveEventListener extends AbstractReassociateEventListener {
+public abstract class AbstractSaveEventListener
+		extends AbstractReassociateEventListener
+		implements CallbackRegistryConsumer {
 	private static final CoreMessageLogger LOG = CoreLogging.messageLogger( AbstractSaveEventListener.class );
 
-	public static enum EntityState {
+	public enum EntityState {
 		PERSISTENT, TRANSIENT, DETACHED, DELETED
+	}
+
+	private CallbackRegistry callbackRegistry;
+
+	public void injectCallbackRegistry(CallbackRegistry callbackRegistry) {
+		this.callbackRegistry = callbackRegistry;
 	}
 
 	/**
@@ -65,6 +79,8 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 			String entityName,
 			Object anything,
 			EventSource source) {
+		callbackRegistry.preCreate( entity );
+
 		return performSave(
 				entity,
 				requestedId,
@@ -84,7 +100,7 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 	 * @param anything Generally cascade-specific information.
 	 * @param source The session which is the source of this save event.
 	 * @param requiresImmediateIdAccess does the event context require
-	 * access to the identifier immediately afterQuery execution of this method (if
+	 * access to the identifier immediately after execution of this method (if
 	 * not, post-insert style id generators may be postponed if we are outside
 	 * a transaction).
 	 *
@@ -97,6 +113,8 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 			Object anything,
 			EventSource source,
 			boolean requiresImmediateIdAccess) {
+		callbackRegistry.preCreate( entity );
+
 		if ( entity instanceof SelfDirtinessTracker ) {
 			( (SelfDirtinessTracker) entity ).$$_hibernate_clearDirtyAttributes();
 		}
@@ -137,7 +155,7 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 	 * @param anything Generally cascade-specific information.
 	 * @param source The session from which the event originated.
 	 * @param requiresImmediateIdAccess does the event context require
-	 * access to the identifier immediately afterQuery execution of this method (if
+	 * access to the identifier immediately after execution of this method (if
 	 * not, post-insert style id generators may be postponed if we are outside
 	 * a transaction).
 	 *
@@ -191,7 +209,7 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 	}
 
 	protected boolean invokeSaveLifecycle(Object entity, EntityPersister persister, EventSource source) {
-		// Sub-insertions should occur beforeQuery containing insertion so
+		// Sub-insertions should occur before containing insertion so
 		// Try to do the callback now
 		if ( persister.implementsLifecycle() ) {
 			LOG.debug( "Calling onSave()" );
@@ -214,7 +232,7 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 	 * @param anything Generally cascade-specific information.
 	 * @param source The session which is the source of the current event.
 	 * @param requiresImmediateIdAccess Is access to the identifier required immediately
-	 * afterQuery the completion of the save?  persist(), for example, does not require this...
+	 * after the completion of the save?  persist(), for example, does not require this...
 	 *
 	 * @return The id used to save the entity; may be null depending on the
 	 *         type of id generator used and the requiresImmediateIdAccess value
@@ -230,12 +248,11 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 
 		Serializable id = key == null ? null : key.getIdentifier();
 
-		boolean inTxn = source.isTransactionInProgress();
-		boolean shouldDelayIdentityInserts = !inTxn && !requiresImmediateIdAccess;
+		boolean shouldDelayIdentityInserts = shouldDelayIdentityInserts( requiresImmediateIdAccess, source );
 
 		// Put a placeholder in entries, so we don't recurse back and try to save() the
-		// same object again. QUESTION: should this be done beforeQuery onSave() is called?
-		// likewise, should it be done beforeQuery onUpdate()?
+		// same object again. QUESTION: should this be done before onSave() is called?
+		// likewise, should it be done before onUpdate()?
 		EntityEntry original = source.getPersistenceContext().addEntry(
 				entity,
 				Status.SAVING,
@@ -303,6 +320,30 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 		return id;
 	}
 
+	private static boolean shouldDelayIdentityInserts(boolean requiresImmediateIdAccess, EventSource source) {
+		return shouldDelayIdentityInserts( requiresImmediateIdAccess, isPartOfTransaction( source ), source.getHibernateFlushMode() );
+	}
+
+	private static boolean shouldDelayIdentityInserts(
+			boolean requiresImmediateIdAccess,
+			boolean partOfTransaction,
+			FlushMode flushMode) {
+		if ( requiresImmediateIdAccess ) {
+			// todo : make this configurable?  as a way to support this behavior with Session#save etc
+			return false;
+		}
+
+		// otherwise we should delay the IDENTITY insertions if either:
+		//		1) we are not part of a transaction
+		//		2) we are in FlushMode MANUAL or COMMIT (not AUTO nor ALWAYS)
+		return !partOfTransaction || flushMode == MANUAL || flushMode == COMMIT;
+
+	}
+
+	private static boolean isPartOfTransaction(EventSource source) {
+		return source.isTransactionInProgress() && source.getTransactionCoordinator().isJoined();
+	}
+
 	private AbstractEntityInsertAction addInsertAction(
 			Object[] values,
 			Serializable id,
@@ -336,7 +377,7 @@ public abstract class AbstractSaveEventListener extends AbstractReassociateEvent
 	 * After the save, will te version number be incremented
 	 * if the instance is modified?
 	 *
-	 * @return True if the version will be incremented on an entity change afterQuery save;
+	 * @return True if the version will be incremented on an entity change after save;
 	 *         false otherwise.
 	 */
 	protected boolean isVersionIncrementDisabled() {

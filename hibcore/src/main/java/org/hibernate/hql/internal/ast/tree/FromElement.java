@@ -23,7 +23,6 @@ import org.hibernate.hql.internal.ast.util.ASTUtil;
 import org.hibernate.hql.spi.QueryTranslator;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
-import org.hibernate.internal.util.StringHelper;
 import org.hibernate.param.DynamicFilterParameterSpecification;
 import org.hibernate.param.ParameterSpecification;
 import org.hibernate.persister.collection.QueryableCollection;
@@ -329,7 +328,7 @@ public class FromElement extends HqlSqlWalkerNode implements DisplayableNode, Pa
 			return cols[0];
 		}
 		else {
-			return "(" + StringHelper.join( ", ", cols ) + ")";
+			return "(" + String.join( ", ", cols ) + ")";
 		}
 	}
 
@@ -342,12 +341,10 @@ public class FromElement extends HqlSqlWalkerNode implements DisplayableNode, Pa
 
 		final String propertyName = getIdentifierPropertyName();
 
-		if ( getWalker().getStatementType() == HqlSqlTokenTypes.SELECT ) {
-			return getPropertyMapping( propertyName ).toColumns( table, propertyName );
-		}
-		else {
-			return getPropertyMapping( propertyName ).toColumns( propertyName );
-		}
+		return toColumns(
+				table, propertyName,
+				getWalker().getStatementType() == HqlSqlTokenTypes.SELECT
+		);
 	}
 
 	public void setCollectionJoin(boolean collectionJoin) {
@@ -627,15 +624,6 @@ public class FromElement extends HqlSqlWalkerNode implements DisplayableNode, Pa
 
 	public void setWithClauseFragment(String withClauseFragment) {
 		this.withClauseFragment = withClauseFragment;
-	}
-
-	public boolean hasCacheablePersister() {
-		if ( getQueryableCollection() != null ) {
-			return getQueryableCollection().hasCache();
-		}
-		else {
-			return getQueryable().hasCache();
-		}
 	}
 
 	public void handlePropertyBeingDereferenced(Type propertySource, String propertyName) {

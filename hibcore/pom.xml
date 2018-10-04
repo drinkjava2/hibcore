@@ -4,11 +4,11 @@
  
  <groupId>com.github.drinkjava2</groupId>
  <artifactId>hibcore</artifactId>
- <version>1.0.0</version>
+ <version>5.3.6</version>
  <packaging>jar</packaging> 
  
  <name>hibcore</name>
- <description>hibcore is a project from study Hibernate only</description>
+ <description>hibcore is a only project for study Hibernate 5.3.6</description>
  <url>https://github.com/drinkjava2/hibcore</url>
   
  <issueManagement>
@@ -65,92 +65,122 @@
      </repository>
    </repositories>
 
- <dependencies>
  
- <dependency>
-    <groupId>org.apache.ant</groupId>
-    <artifactId>ant</artifactId>
-    <version>1.10.1</version>
-</dependency> 
- 
- <dependency>
-    <groupId>javax.security.jacc</groupId>
-    <artifactId>javax.security.jacc-api</artifactId>
-    <version>1.5</version>
-</dependency>
- 
- <dependency>
-    <groupId>javax.enterprise</groupId>
-    <artifactId>cdi-api</artifactId>
-    <version>2.0-PFD2</version>
-</dependency>
+  <dependencies>
 
- <dependency>
-    <groupId>org.jboss.logging</groupId>
-    <artifactId>jboss-logging-annotations</artifactId>
-    <version>2.0.2.Final</version>
-</dependency>
-
- <dependency>
-    <groupId>javax.validation</groupId>
-    <artifactId>validation-api</artifactId>
-    <version>1.1.0.Final</version>
-</dependency>
-  
- <dependency>
-    <groupId>net.bytebuddy</groupId>
-    <artifactId>byte-buddy</artifactId>
-    <version>1.6.14</version>
-</dependency>
-   
-   
- 
-    <!-- Hibernate core project dependent hibernate libs-->   
-    <!--dependency>
-      <groupId>org.hibernate</groupId>
-      <artifactId>hibernate-core</artifactId>
-      <version>5.2.9.Final</version>
-    </dependency--> 
-    
-     <dependency>
+      <dependency>
       <groupId>org.jboss.logging</groupId>
       <artifactId>jboss-logging</artifactId>
-      <version>3.3.0.Final</version>
+      <version>3.3.2.Final</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
-      <groupId>org.hibernate.javax.persistence</groupId>
-      <artifactId>hibernate-jpa-2.1-api</artifactId>
-      <version>1.0.0.Final</version>
+      <groupId>javax.persistence</groupId>
+      <artifactId>javax.persistence-api</artifactId>
+      <version>2.2</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.javassist</groupId>
       <artifactId>javassist</artifactId>
-      <version>3.20.0-GA</version>
+      <version>3.23.1-GA</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy</artifactId>
+      <version>1.8.17</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>antlr</groupId>
       <artifactId>antlr</artifactId>
       <version>2.7.7</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.jboss.spec.javax.transaction</groupId>
       <artifactId>jboss-transaction-api_1.2_spec</artifactId>
-      <version>1.0.1.Final</version>
+      <version>1.1.1.Final</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.jboss</groupId>
       <artifactId>jandex</artifactId>
-      <version>2.0.3.Final</version>
+      <version>2.0.5.Final</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.fasterxml</groupId>
       <artifactId>classmate</artifactId>
-      <version>1.3.0</version>
+      <version>1.3.4</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>javax.activation</groupId>
+      <artifactId>javax.activation-api</artifactId>
+      <version>1.2.0</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>dom4j</groupId>
       <artifactId>dom4j</artifactId>
       <version>1.6.1</version>
+      <scope>compile</scope>
       <exclusions>
         <exclusion>
           <artifactId>*</artifactId>
@@ -161,10 +191,113 @@
     <dependency>
       <groupId>org.hibernate.common</groupId>
       <artifactId>hibernate-commons-annotations</artifactId>
-      <version>5.0.1.Final</version>
-    </dependency> 
-</dependencies> 
+      <version>5.0.4.Final</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>xml-apis</artifactId>
+          <groupId>xml-apis</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+	
+	
+	
+<dependency><groupId>org.apache.ant</groupId><artifactId>ant</artifactId><version>1.8.2</version></dependency>
+<dependency><groupId>antlr</groupId><artifactId>antlr</artifactId><version>2.7.7</version></dependency>
+<dependency><groupId>org.hibernate.common</groupId><artifactId>hibernate-commons-annotations</artifactId><version>5.0.4.Final</version></dependency>
+<dependency><groupId>org.jboss</groupId><artifactId>jandex</artifactId><version>2.0.5.Final</version></dependency>
+<dependency><groupId>com.fasterxml</groupId><artifactId>classmate</artifactId><version>1.3.4</version></dependency>
+<dependency><groupId>org.codehaus.woodstox</groupId><artifactId>woodstox-core-asl</artifactId><version>4.3.0</version></dependency>
+<dependency><groupId>dom4j</groupId><artifactId>dom4j</artifactId><version>1.6.1</version></dependency>
+<dependency><groupId>org.javassist</groupId><artifactId>javassist</artifactId><version>3.23.1-GA</version></dependency>
+<dependency><groupId>net.bytebuddy</groupId><artifactId>byte-buddy</artifactId><version>1.8.17</version></dependency>
+<dependency><groupId>javax.persistence</groupId><artifactId>javax.persistence-api</artifactId><version>2.2</version></dependency>
+<dependency><groupId>org.jboss.spec.javax.transaction</groupId><artifactId>jboss-transaction-api_1.2_spec</artifactId><version>1.1.1.Final</version></dependency>
+<dependency><groupId>javax.validation</groupId><artifactId>validation-api</artifactId><version>2.0.1.Final</version></dependency>
+<dependency><groupId>org.jboss.spec.javax.security.jacc</groupId><artifactId>jboss-jacc-api_1.4_spec</artifactId><version>1.0.2.Final</version></dependency>
+<dependency><groupId>javax.interceptor</groupId><artifactId>javax.interceptor-api</artifactId><version>1.2</version></dependency>
+<dependency><groupId>javax.activation</groupId><artifactId>javax.activation-api</artifactId><version>1.2.0</version></dependency>
+<dependency><groupId>org.jboss.logging</groupId><artifactId>jboss-logging</artifactId><version>3.3.2.Final</version></dependency>
+<dependency><groupId>org.jboss.logging</groupId><artifactId>jboss-logging-annotations</artifactId><version>2.1.0.Final</version></dependency>
+<dependency><groupId>org.jboss.logging</groupId><artifactId>jboss-logging-processor</artifactId><version>2.1.0.Final</version></dependency>
+<dependency><groupId>com.sun.xml.bind</groupId><artifactId>jaxb-xjc</artifactId><version>2.2.5</version></dependency>
+<dependency><groupId>org.jvnet.jaxb2_commons</groupId><artifactId>jaxb2-basics</artifactId><version>0.6.3</version></dependency>
+<dependency><groupId>org.jvnet.jaxb2_commons</groupId><artifactId>jaxb2-basics-ant</artifactId><version>0.6.3</version></dependency>
+<!--dependency><groupId>org.jvnet.jaxb2_commons</groupId><artifactId>jaxb2-basics-jaxb</artifactId><version>2.2.4-1</version></dependency-->
+<!--dependency><groupId>org.jvnet.jaxb2_commons</groupId><artifactId>jaxb2-basics-jaxb-xjc</artifactId><version>2.2.4-1</version></dependency-->
+<dependency><groupId>org.geolatte</groupId><artifactId>geolatte-geom</artifactId><version>1.3.0</version></dependency>
+<dependency><groupId>org.codehaus.mojo</groupId><artifactId>animal-sniffer-ant-tasks</artifactId><version>1.13</version></dependency>
+<dependency><groupId>org.ow2.asm</groupId><artifactId>asm-all</artifactId><version>5.0.3</version></dependency>
+<!--dependency><groupId>org.codehaus.mojo.signature</groupId><artifactId>java16</artifactId><version>1.0</version></dependency-->
+<dependency><groupId>org.apache.maven</groupId><artifactId>maven-core</artifactId><version>3.0.5</version></dependency>
+<dependency><groupId>org.apache.maven</groupId><artifactId>maven-artifact</artifactId><version>3.0.5</version></dependency>
+<dependency><groupId>org.apache.maven</groupId><artifactId>maven-plugin-api</artifactId><version>3.0.5</version></dependency>
+<dependency><groupId>org.apache.maven.plugin-tools</groupId><artifactId>maven-plugin-annotations</artifactId><version>3.2</version></dependency>
+<dependency><groupId>javax.enterprise</groupId><artifactId>cdi-api</artifactId><version>2.0</version></dependency>
+
+
+   <dependency>
+    <groupId>org.hibernate</groupId>
+    <artifactId>hibernate-core</artifactId>
+    <version>5.3.6.Final</version>
+   </dependency>
+   
+   
+<!--
+<dependency><groupId>log4j</groupId><artifactId>log4j</artifactId><version>1.2.17</version></dependency>
+<dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>4.12</version></dependency>
+<dependency><groupId>org.jboss.byteman</groupId><artifactId>byteman</artifactId><version>4.0.3</version></dependency>
+<dependency><groupId>org.jboss.byteman</groupId><artifactId>byteman-install</artifactId><version>4.0.3</version></dependency>
+<dependency><groupId>org.jboss.byteman</groupId><artifactId>byteman-bmunit</artifactId><version>4.0.3</version></dependency>
+<dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>1.4.196</version></dependency>
+<dependency><groupId>org.hsqldb</groupId><artifactId>hsqldb</artifactId><version>2.3.2</version></dependency>
+<dependency><groupId>org.apache.derby</groupId><artifactId>derby</artifactId><version>10.11.1.1</version></dependency>
+<dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.2.2</version></dependency>
+<dependency><groupId>mysql</groupId><artifactId>mysql-connector-java</artifactId><version>5.1.46</version></dependency>
+<dependency><groupId>org.mariadb.jdbc</groupId><artifactId>mariadb-java-client</artifactId><version>2.2.3</version></dependency>
+<dependency><groupId>com.oracle.jdbc</groupId><artifactId>ojdbc8</artifactId><version>12.2.0.1</version></dependency>
+<dependency><groupId>com.microsoft.sqlserver</groupId><artifactId>mssql-jdbc</artifactId><version>6.4.0.jre8</version></dependency>
+<dependency><groupId>com.ibm.db2</groupId><artifactId>db2jcc</artifactId><version>10.5</version></dependency>
+<dependency><groupId>joda-time</groupId><artifactId>joda-time</artifactId><version>${jodaTimeVersion}</version></dependency>
+<dependency><groupId>com.ibm.informix</groupId><artifactId>jdbc</artifactId><version>4.10.7.20160517</version></dependency>
+<dependency><groupId>org.jboss.jbossts</groupId><artifactId>jbossjta</artifactId><version>4.16.4.Final</version></dependency>
+<dependency><groupId>com.experlog</groupId><artifactId>xapool</artifactId><version>1.5.0</version></dependency>
+<dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>2.19.1</version></dependency>
+<dependency><groupId>org.mockito</groupId><artifactId>mockito-inline</artifactId><version>2.19.1</version></dependency>
+<dependency><groupId>org.hibernate.validator</groupId><artifactId>hibernate-validator</artifactId><version>6.0.7.Final</version></dependency>
+<dependency><groupId>org.glassfish</groupId><artifactId>javax.el</artifactId><version>3.0.1-b08</version></dependency>
+<dependency><groupId>com.mchange</groupId><artifactId>c3p0</artifactId><version>0.9.5.2</version></dependency>
+<dependency><groupId>net.sf.ehcache</groupId><artifactId>ehcache</artifactId><version>2.10.3</version></dependency>
+<dependency><groupId>org.ehcache</groupId><artifactId>ehcache</artifactId><version>3.0.0</version></dependency>
+<dependency><groupId>javax.cache</groupId><artifactId>cache-api</artifactId><version>1.0.0</version></dependency>
+<dependency><groupId>proxool</groupId><artifactId>proxool</artifactId><version>0.8.3</version></dependency>
+<dependency><groupId>com.zaxxer</groupId><artifactId>HikariCP</artifactId><version>2.5.1</version></dependency>
+<dependency><groupId>org.vibur</groupId><artifactId>vibur-dbcp</artifactId><version>22.1</version></dependency>
+<dependency><groupId>io.agroal</groupId><artifactId>agroal-api</artifactId><version>0.4</version></dependency>
+<dependency><groupId>io.agroal</groupId><artifactId>agroal-pool</artifactId><version>0.4</version></dependency>
  
+<dependency><groupId>org.jboss.weld.se</groupId><artifactId>weld-se-shaded</artifactId><version>3.0.0.Final</version></dependency>
+<dependency><groupId>org.jboss.arquillian.junit</groupId><artifactId>arquillian-junit-container</artifactId><version>1.1.11.Final</version></dependency>
+<dependency><groupId>org.jboss.arquillian.protocol</groupId><artifactId>arquillian-protocol-servlet</artifactId><version>1.1.11.Final</version></dependency>
+<dependency><groupId>org.jboss.shrinkwrap</groupId><artifactId>shrinkwrap-api</artifactId><version>1.2.6</version></dependency>
+<dependency><groupId>org.jboss.shrinkwrap</groupId><artifactId>shrinkwrap-impl-base</artifactId><version>1.2.6</version></dependency>
+<dependency><groupId>org.jboss.shrinkwrap.descriptors</groupId><artifactId>shrinkwrap-descriptors-api-javaee</artifactId><version>2.0.0-alpha-8</version></dependency>
+<dependency><groupId>org.jboss.shrinkwrap.descriptors</groupId><artifactId>shrinkwrap-descriptors-impl-javaee</artifactId><version>2.0.0-alpha-8</version></dependency>
+<dependency><groupId>org.wildfly.arquillian</groupId><artifactId>wildfly-arquillian-container-managed</artifactId><version>2.0.0.Final</version></dependency>
+<dependency><groupId>org.jboss</groupId><artifactId>jboss-vfs</artifactId><version>3.2.11.Final</version></dependency>
+<dependency><groupId>org.wildfly</groupId><artifactId>jipijapa-spi</artifactId><version>13.0.0.Final</version></dependency>
+<dependency><groupId>org.wildfly.transaction</groupId><artifactId>wildfly-transaction-client</artifactId><version>1.0.3.Final</version></dependency>
+<dependency><groupId>org.jboss.spec.javax.ejb</groupId><artifactId>jboss-ejb-api_3.2_spec</artifactId><version>1.0.0.Final</version></dependency>
+<dependency><groupId>org.jboss.spec.javax.annotation</groupId><artifactId>jboss-annotations-api_1.2_spec</artifactId><version>1.0.0.Final</version></dependency>
+-->
+ 
+ 
+  
+	
+  </dependencies>
+  
+  
  <build>
         <plugins>
             <plugin>

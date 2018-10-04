@@ -9,6 +9,11 @@ package org.hibernate.proxy.pojo.bytebuddy;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 
+import org.hibernate.bytecode.internal.bytebuddy.BytecodeProviderImpl;
+import org.hibernate.bytecode.internal.bytebuddy.ProxyFactoryFactoryImpl;
+import org.hibernate.bytecode.spi.BytecodeProvider;
+import org.hibernate.bytecode.spi.ProxyFactoryFactory;
+import org.hibernate.cfg.Environment;
 import org.hibernate.proxy.AbstractSerializableProxy;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.CompositeType;
@@ -26,6 +31,10 @@ public final class SerializableProxy extends AbstractSerializableProxy {
 
 	private final CompositeType componentIdType;
 
+	/**
+	 * @deprecated use {@link #SerializableProxy(String, Class, Class[], Serializable, Boolean, String, boolean, Method, Method, CompositeType)} instead.
+	 */
+	@Deprecated
 	public SerializableProxy(
 			String entityName,
 			Class persistentClass,
@@ -35,7 +44,24 @@ public final class SerializableProxy extends AbstractSerializableProxy {
 			Method getIdentifierMethod,
 			Method setIdentifierMethod,
 			CompositeType componentIdType) {
-		super( entityName, id, readOnly );
+		this(
+				entityName, persistentClass, interfaces, id, readOnly, null, false,
+				getIdentifierMethod, setIdentifierMethod, componentIdType
+		);
+	}
+
+	public SerializableProxy(
+			String entityName,
+			Class persistentClass,
+			Class[] interfaces,
+			Serializable id,
+			Boolean readOnly,
+			String sessionFactoryUuid,
+			boolean allowLoadOutsideTransaction,
+			Method getIdentifierMethod,
+			Method setIdentifierMethod,
+			CompositeType componentIdType) {
+		super( entityName, id, readOnly, sessionFactoryUuid, allowLoadOutsideTransaction );
 		this.persistentClass = persistentClass;
 		this.interfaces = interfaces;
 		if ( getIdentifierMethod != null ) {
@@ -104,8 +130,13 @@ public final class SerializableProxy extends AbstractSerializableProxy {
 	}
 
 	private Object readResolve() {
-		HibernateProxy proxy = ByteBuddyProxyFactory.deserializeProxy( this );
-		setReadOnlyBeforeAttachedToSession( (ByteBuddyInterceptor) proxy.getHibernateLazyInitializer() );
+		BytecodeProvider bytecodeProvider = Environment.getBytecodeProvider();
+		if ( !( bytecodeProvider instanceof BytecodeProviderImpl ) ) {
+			throw new IllegalStateException( "The bytecode provider is not ByteBuddy, unable to deserialize a ByteBuddy proxy." );
+		}
+
+		HibernateProxy proxy = ( (BytecodeProviderImpl) bytecodeProvider ).getByteBuddyProxyHelper().deserializeProxy( this );
+		afterDeserialization( (ByteBuddyInterceptor) proxy.getHibernateLazyInitializer() );
 		return proxy;
 	}
 }

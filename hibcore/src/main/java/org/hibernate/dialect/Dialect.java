@@ -1031,7 +1031,7 @@ public abstract class Dialect implements ConversionContext {
 	 * Does the <tt>LIMIT</tt> clause come at the start of the
 	 * <tt>SELECT</tt> statement, rather than at the end?
 	 *
-	 * @return true if limit parameters should come beforeQuery other parameters
+	 * @return true if limit parameters should come before other parameters
 	 * @deprecated {@link #getLimitHandler()} should be overridden instead.
 	 */
 	@Deprecated
@@ -1449,6 +1449,22 @@ public abstract class Dialect implements ConversionContext {
 	 */
 	public String getCreateTableString() {
 		return "create table";
+	}
+
+	/**
+	 * Command used to alter a table.
+	 *
+	 * @param tableName The name of the table to alter
+	 * @return The command used to alter a table.
+	 * @since 5.2.11
+	 */
+	public String getAlterTableString(String tableName) {
+		final StringBuilder sb = new StringBuilder( "alter table " );
+		if ( supportsIfExistsAfterAlterTable() ) {
+			sb.append( "if exists " );
+		}
+		sb.append( tableName );
+		return sb.toString();
 	}
 
 	/**
@@ -2045,7 +2061,7 @@ public abstract class Dialect implements ConversionContext {
 	}
 
 	/**
-	 * Do we need to drop constraints beforeQuery dropping tables in this dialect?
+	 * Do we need to drop constraints before dropping tables in this dialect?
 	 *
 	 * @return True if constraints must be dropped prior to dropping
 	 * the table; false otherwise.
@@ -2114,13 +2130,13 @@ public abstract class Dialect implements ConversionContext {
 		res.append( " add constraint " )
 				.append( quote( constraintName ) )
 				.append( " foreign key (" )
-				.append( StringHelper.join( ", ", foreignKey ) )
+				.append( String.join( ", ", foreignKey ) )
 				.append( ") references " )
 				.append( referencedTable );
 
 		if ( !referencesPrimaryKey ) {
 			res.append( " (" )
-					.append( StringHelper.join( ", ", primaryKey ) )
+					.append( String.join( ", ", primaryKey ) )
 					.append( ')' );
 		}
 
@@ -2198,46 +2214,56 @@ public abstract class Dialect implements ConversionContext {
 	}
 
 	/**
-	 * For dropping a table, can the phrase "if exists" be applied beforeQuery the table name?
+	 * For dropping a table, can the phrase "if exists" be applied before the table name?
 	 * <p/>
 	 * NOTE : Only one or the other (or neither) of this and {@link #supportsIfExistsAfterTableName} should return true
 	 *
-	 * @return {@code true} if the "if exists" can be applied beforeQuery the table name
+	 * @return {@code true} if the "if exists" can be applied before the table name
 	 */
 	public boolean supportsIfExistsBeforeTableName() {
 		return false;
 	}
 
 	/**
-	 * For dropping a table, can the phrase "if exists" be applied afterQuery the table name?
+	 * For dropping a table, can the phrase "if exists" be applied after the table name?
 	 * <p/>
 	 * NOTE : Only one or the other (or neither) of this and {@link #supportsIfExistsBeforeTableName} should return true
 	 *
-	 * @return {@code true} if the "if exists" can be applied afterQuery the table name
+	 * @return {@code true} if the "if exists" can be applied after the table name
 	 */
 	public boolean supportsIfExistsAfterTableName() {
 		return false;
 	}
 
 	/**
-	 * For dropping a constraint with an "alter table", can the phrase "if exists" be applied beforeQuery the constraint name?
+	 * For dropping a constraint with an "alter table", can the phrase "if exists" be applied before the constraint name?
 	 * <p/>
 	 * NOTE : Only one or the other (or neither) of this and {@link #supportsIfExistsAfterConstraintName} should return true
 	 *
-	 * @return {@code true} if the "if exists" can be applied beforeQuery the constraint name
+	 * @return {@code true} if the "if exists" can be applied before the constraint name
 	 */
 	public boolean supportsIfExistsBeforeConstraintName() {
 		return false;
 	}
 
 	/**
-	 * For dropping a constraint with an "alter table", can the phrase "if exists" be applied afterQuery the constraint name?
+	 * For dropping a constraint with an "alter table", can the phrase "if exists" be applied after the constraint name?
 	 * <p/>
 	 * NOTE : Only one or the other (or neither) of this and {@link #supportsIfExistsBeforeConstraintName} should return true
 	 *
-	 * @return {@code true} if the "if exists" can be applied afterQuery the constraint name
+	 * @return {@code true} if the "if exists" can be applied after the constraint name
 	 */
 	public boolean supportsIfExistsAfterConstraintName() {
+		return false;
+	}
+
+	/**
+	 * For an "alter table", can the phrase "if exists" be applied?
+	 *
+	 * @return {@code true} if the "if exists" can be applied after ALTER TABLE
+	 * @since 5.2.11
+	 */
+	public boolean supportsIfExistsAfterAlterTable() {
 		return false;
 	}
 
@@ -2645,7 +2671,7 @@ public abstract class Dialect implements ConversionContext {
 	}
 
 	/**
-	 * Return the limit that the underlying database places on the number elements in an {@code IN} predicate.
+	 * Return the limit that the underlying database places on the number of elements in an {@code IN} predicate.
 	 * If the database defines no such limits, simply return zero or less-than-zero.
 	 *
 	 * @return int The limit, or zero-or-less to indicate no limit.
@@ -2658,7 +2684,7 @@ public abstract class Dialect implements ConversionContext {
 	 * HHH-4635
 	 * Oracle expects all Lob values to be last in inserts and updates.
 	 *
-	 * @return boolean True of Lob values should be last, false if it
+	 * @return boolean True if Lob values should be last, false if it
 	 * does not matter.
 	 */
 	public boolean forceLobAsLastValue() {
@@ -2767,10 +2793,28 @@ public abstract class Dialect implements ConversionContext {
 	 * and syntax of the hint.  By default, ignore the hint and simply return the query.
 	 *
 	 * @param query The query to which to apply the hint.
+	 * @param hintList The  hints to apply
+	 * @return The modified SQL
+	 */
+	public String getQueryHintString(String query, List<String> hintList) {
+		final String hints = String.join( ", ", hintList );
+
+		if ( StringHelper.isEmpty( hints ) ) {
+			return query;
+		}
+
+		return getQueryHintString( query, hints );
+	}
+
+	/**
+	 * Apply a hint to the query.  The entire query is provided, allowing the Dialect full control over the placement
+	 * and syntax of the hint.  By default, ignore the hint and simply return the query.
+	 *
+	 * @param query The query to which to apply the hint.
 	 * @param hints The  hints to apply
 	 * @return The modified SQL
 	 */
-	public String getQueryHintString(String query, List<String> hints) {
+	public String getQueryHintString(String query, String hints) {
 		return query;
 	}
 
@@ -2882,8 +2926,44 @@ public abstract class Dialect implements ConversionContext {
 		return false;
 	}
 
+	/**
+	 * Does this dialect/database support SKIP_LOCKED timeout.
+	 *
+	 * @return {@code true} if SKIP_LOCKED is supported
+	 */
+	public boolean supportsSkipLocked() {
+		return false;
+	}
+
+	/**
+	 * Does this dialect/database support NO_WAIT timeout.
+	 *
+	 * @return {@code true} if NO_WAIT is supported
+	 */
+	public boolean supportsNoWait() {
+		return false;
+	}
+
 	public boolean isLegacyLimitHandlerBehaviorEnabled() {
 		return legacyLimitHandlerBehavior;
+	}
+
+	/**
+	 * Inline String literal.
+	 *
+	 * @return escaped String
+	 */
+	public String inlineLiteral(String literal) {
+		return String.format( "\'%s\'", escapeLiteral( literal ) );
+	}
+
+	/**
+	 * Escape String literal.
+	 *
+	 * @return escaped String
+	 */
+	protected String escapeLiteral(String literal) {
+		return literal.replace("'", "''");
 	}
 
 	private void resolveLegacyLimitHandlerBehavior(ServiceRegistry serviceRegistry) {
@@ -2895,5 +2975,33 @@ public abstract class Dialect implements ConversionContext {
 				StandardConverters.BOOLEAN,
 				false
 		);
+	}
+
+	/**
+	 * Modify the SQL, adding hints or comments, if necessary
+	 *
+	 * @param sql original sql
+	 * @param parameters query parameters
+	 * @param commentsEnabled if comments are enabled
+	 */
+	public String addSqlHintOrComment(
+			String sql,
+			QueryParameters parameters,
+			boolean commentsEnabled) {
+
+		// Keep this here, rather than moving to Select.  Some Dialects may need the hint to be appended to the very
+		// end or beginning of the finalized SQL statement, so wait until everything is processed.
+		if ( parameters.getQueryHints() != null && parameters.getQueryHints().size() > 0 ) {
+			sql = getQueryHintString( sql, parameters.getQueryHints() );
+		}
+		if ( commentsEnabled && parameters.getComment() != null ){
+			sql = prependComment( sql, parameters.getComment() );
+		}
+
+		return sql;
+	}
+
+	protected String prependComment(String sql, String comment) {
+		return  "/* " + comment + " */ " + sql;
 	}
 }

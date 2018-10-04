@@ -6,22 +6,22 @@
  */
 package org.hibernate.type;
 
-import java.io.Serializable;
-import java.util.Arrays;
-import java.util.Map;
-
-import org.hibernate.Hibernate;
 import org.hibernate.bytecode.enhance.spi.LazyPropertyInitializer;
-import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.hibernate.property.access.internal.PropertyAccessStrategyBackRefImpl;
 import org.hibernate.tuple.NonIdentifierAttribute;
+
+import java.io.Serializable;
+import java.util.Map;
 
 /**
  * Collection of convenience methods relating to operations across arrays of types...
  *
  * @author Steve Ebersole
+ *
+ * @deprecated with no real replacement.  this was always intended as an internal class
  */
+@Deprecated
 public class TypeHelper {
 	/**
 	 * Disallow instantiation
@@ -156,25 +156,8 @@ public class TypeHelper {
 			final Map copyCache) {
 		Object[] copied = new Object[original.length];
 		for ( int i = 0; i < types.length; i++ ) {
-			if ( original[i] == LazyPropertyInitializer.UNFETCHED_PROPERTY
-				|| original[i] == PropertyAccessStrategyBackRefImpl.UNKNOWN ) {
+			if ( original[i] == LazyPropertyInitializer.UNFETCHED_PROPERTY || original[i] == PropertyAccessStrategyBackRefImpl.UNKNOWN ) {
 				copied[i] = target[i];
-			}
-			else if ( target[i] == LazyPropertyInitializer.UNFETCHED_PROPERTY ) {
-				// Should be no need to check for target[i] == PropertyAccessStrategyBackRefImpl.UNKNOWN
-				// because PropertyAccessStrategyBackRefImpl.get( object ) returns
-				// PropertyAccessStrategyBackRefImpl.UNKNOWN, so target[i] == original[i].
-				//
-				// We know from above that original[i] != LazyPropertyInitializer.UNFETCHED_PROPERTY &&
-				// original[i] != PropertyAccessStrategyBackRefImpl.UNKNOWN;
-				// This is a case where the entity being merged has a lazy property
-				// that has been initialized. Copy the initialized value from original.
-				if ( types[i].isMutable() ) {
-					copied[i] = types[i].deepCopy( original[i], session.getFactory() );
-				}
-				else {
-					copied[i] = original[i];
-				}
 			}
 			else {
 				copied[i] = types[i].replace( original[i], target[i], session, owner, copyCache );
@@ -306,7 +289,7 @@ public class TypeHelper {
 	 * @param previousState The baseline state of the entity
 	 * @param includeColumns Columns to be included in the dirty checking, per property
 	 * @param session The session from which the dirty check request originated.
-	 * 
+	 *
 	 * @return Array containing indices of the dirty properties, or null if no properties considered dirty.
 	 */
 	public static int[] findDirty(
@@ -320,9 +303,10 @@ public class TypeHelper {
 		int span = properties.length;
 
 		for ( int i = 0; i < span; i++ ) {
-			final boolean dirty = currentState[i] != LazyPropertyInitializer.UNFETCHED_PROPERTY
-					&& properties[i].isDirtyCheckable()
-					&& properties[i].getType().isDirty( previousState[i], currentState[i], includeColumns[i], session );
+			final boolean dirty = currentState[i] != LazyPropertyInitializer.UNFETCHED_PROPERTY &&
+					( previousState[i] == LazyPropertyInitializer.UNFETCHED_PROPERTY ||
+							( properties[i].isDirtyCheckable()
+									&& properties[i].getType().isDirty( previousState[i], currentState[i], includeColumns[i], session ) ) );
 			if ( dirty ) {
 				if ( results == null ) {
 					results = new int[span];
@@ -421,24 +405,4 @@ public class TypeHelper {
 		}
 	}
 
-	public static String toLoggableString(
-			Object[] state,
-			Type[] types,
-			SessionFactoryImplementor factory) {
-		final StringBuilder buff = new StringBuilder();
-		for ( int i = 0; i < state.length; i++ ) {
-			if ( i > 0 ) {
-				buff.append( ", " );
-			}
-
-			// HHH-11173 - Instead of having to account for unfectched lazy properties in all types, it's done here
-			if ( state[i] == LazyPropertyInitializer.UNFETCHED_PROPERTY || !Hibernate.isInitialized( state[i] ) ) {
-				buff.append( "<uninitialized>" );
-			}
-			else {
-				buff.append( types[i].toLoggableString( state[i], factory ) );
-			}
-		}
-		return buff.toString();
-	}
 }

@@ -17,13 +17,6 @@ import org.hibernate.proxy.ProxyConfiguration;
 import org.hibernate.proxy.pojo.BasicLazyInitializer;
 import org.hibernate.type.CompositeType;
 
-import net.bytebuddy.implementation.bind.annotation.AllArguments;
-import net.bytebuddy.implementation.bind.annotation.FieldValue;
-import net.bytebuddy.implementation.bind.annotation.Origin;
-import net.bytebuddy.implementation.bind.annotation.RuntimeType;
-import net.bytebuddy.implementation.bind.annotation.StubValue;
-import net.bytebuddy.implementation.bind.annotation.This;
-
 import static org.hibernate.internal.CoreLogging.messageLogger;
 
 public class ByteBuddyInterceptor extends BasicLazyInitializer implements ProxyConfiguration.Interceptor {
@@ -47,13 +40,7 @@ public class ByteBuddyInterceptor extends BasicLazyInitializer implements ProxyC
 
 	@Override
 	public Object intercept(Object proxy, Method thisMethod, Object[] args) throws Throwable {
-		Object result;
-		try {
-			result = this.invoke( thisMethod, args, proxy );
-		}
-		catch (Throwable t) {
-			throw new Exception( t.getCause() );
-		}
+		Object result = this.invoke( thisMethod, args, proxy );
 		if ( result == INVOKE_IMPLEMENTATION ) {
 			Object target = getImplementation();
 			final Object returnValue;
@@ -100,6 +87,8 @@ public class ByteBuddyInterceptor extends BasicLazyInitializer implements ProxyC
 				interfaces,
 				getIdentifier(),
 				( isReadOnlySettingAvailable() ? Boolean.valueOf( isReadOnly() ) : isReadOnlyBeforeAttachedToSession() ),
+				getSessionFactoryUuid(),
+				isAllowLoadOutsideTransaction(),
 				getIdentifierMethod,
 				setIdentifierMethod,
 				componentIdType

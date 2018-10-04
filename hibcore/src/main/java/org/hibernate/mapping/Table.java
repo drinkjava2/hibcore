@@ -27,7 +27,6 @@ import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.jdbc.env.spi.JdbcEnvironment;
 import org.hibernate.engine.jdbc.env.spi.QualifiedObjectNameFormatter;
 import org.hibernate.engine.spi.Mapping;
-import org.hibernate.internal.util.StringHelper;
 import org.hibernate.tool.hbm2ddl.ColumnMetadata;
 import org.hibernate.tool.hbm2ddl.TableMetadata;
 import org.hibernate.tool.schema.extract.spi.ColumnInformation;
@@ -447,13 +446,28 @@ public class Table implements RelationalModel, Serializable, Exportable {
 		
 		final JdbcEnvironment jdbcEnvironment = metadata.getDatabase().getJdbcEnvironment();
 
-		StringBuilder root = new StringBuilder( "alter table " )
-				.append( 
-						jdbcEnvironment.getQualifiedObjectNameFormatter().format(
-								tableInfo.getName(),
-								dialect
-						) 
-				)
+		Identifier quotedCatalog = catalog != null && catalog.isQuoted() ?
+				new Identifier( tableInfo.getName().getCatalogName().getText(), true ) :
+				tableInfo.getName().getCatalogName();
+
+		Identifier quotedSchema = schema != null && schema.isQuoted() ?
+				new Identifier( tableInfo.getName().getSchemaName().getText(), true ) :
+				tableInfo.getName().getSchemaName();
+
+		Identifier quotedTable = name != null &&  name.isQuoted() ?
+				new Identifier( tableInfo.getName().getObjectName().getText(), true ) :
+				tableInfo.getName().getObjectName();
+
+		final String tableName = jdbcEnvironment.getQualifiedObjectNameFormatter().format(
+				new QualifiedTableName(
+					quotedCatalog,
+					quotedSchema,
+					quotedTable
+				),
+				dialect
+		);
+
+		StringBuilder root = new StringBuilder( dialect.getAlterTableString( tableName ) )
 				.append( ' ' )
 				.append( dialect.getAddColumnString() );
 
@@ -714,7 +728,7 @@ public class Table implements RelationalModel, Serializable, Exportable {
 			}
 
 			// NOTE : if the name is null, we will generate an implicit name during second pass processing
-			// afterQuery we know the referenced table name (which might not be resolved yet).
+			// after we know the referenced table name (which might not be resolved yet).
 			fk.setName( keyName );
 
 			foreignKeys.put( key, fk );
@@ -886,9 +900,9 @@ public class Table implements RelationalModel, Serializable, Exportable {
 		@Override
 		public String toString() {
 			return "ForeignKeyKey{" +
-					"columns=" + StringHelper.join( ",", columns ) +
+					"columns=" + String.join( ",", columns ) +
 					", referencedClassName='" + referencedClassName + '\'' +
-					", referencedColumns=" + StringHelper.join( ",", referencedColumns ) +
+					", referencedColumns=" + String.join( ",", referencedColumns ) +
 					'}';
 		}
 	}

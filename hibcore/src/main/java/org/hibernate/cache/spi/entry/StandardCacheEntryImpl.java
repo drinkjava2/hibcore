@@ -27,8 +27,8 @@ import org.hibernate.type.TypeHelper;
  * @author Steve Ebersole
  */
 public class StandardCacheEntryImpl implements CacheEntry {
+
 	private final Serializable[] disassembledState;
-	private final String disassembledStateText;
 	private final Object version;
 	private final String subclass;
 
@@ -57,18 +57,12 @@ public class StandardCacheEntryImpl implements CacheEntry {
 				session,
 				owner
 		);
-		this.disassembledStateText = TypeHelper.toLoggableString(
-				state,
-				persister.getPropertyTypes(),
-				session.getFactory()
-		);
 		this.subclass = persister.getEntityName();
 		this.version = version;
 	}
 
-	StandardCacheEntryImpl(Serializable[] state, String disassembledStateText, String subclass, Object version) {
-		this.disassembledState = state;
-		this.disassembledStateText = disassembledStateText;
+	StandardCacheEntryImpl(Serializable[] disassembledState, String subclass, Object version) {
+		this.disassembledState = disassembledState;
 		this.subclass = subclass;
 		this.version = version;
 	}
@@ -138,18 +132,18 @@ public class StandardCacheEntryImpl implements CacheEntry {
 		}
 
 		//assembled state gets put in a new array (we read from cache by value!)
-		final Object[] assembledProps = TypeHelper.assemble(
+		final Object[] state = TypeHelper.assemble(
 				disassembledState,
 				persister.getPropertyTypes(),
 				session, instance
 		);
 
-		//persister.setIdentifier(instance, id); //beforeQuery calling interceptor, for consistency with normal load
+		//persister.setIdentifier(instance, id); //before calling interceptor, for consistency with normal load
 
 		//TODO: reuse the PreLoadEvent
 		final PreLoadEvent preLoadEvent = new PreLoadEvent( session )
 				.setEntity( instance )
-				.setState( assembledProps )
+				.setState( state )
 				.setId( id )
 				.setPersister( persister );
 
@@ -162,13 +156,14 @@ public class StandardCacheEntryImpl implements CacheEntry {
 			listener.onPreLoad( preLoadEvent );
 		}
 
-		persister.setPropertyValues( instance, assembledProps );
+		persister.setPropertyValues( instance, state );
 
-		return assembledProps;
+		return state;
 	}
 
 	@Override
 	public String toString() {
-		return "CacheEntry(" + subclass + " {" + disassembledStateText + "})";
+		return "CacheEntry(" + subclass + ')';
 	}
+
 }

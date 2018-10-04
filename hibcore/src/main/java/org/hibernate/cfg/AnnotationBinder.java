@@ -6,7 +6,6 @@
  */
 package org.hibernate.cfg;
 
-import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -20,8 +19,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import javax.persistence.AttributeOverride;
+import javax.persistence.AttributeOverrides;
 import javax.persistence.Basic;
-import javax.persistence.Cacheable;
 import javax.persistence.CollectionTable;
 import javax.persistence.Column;
 import javax.persistence.ConstraintMode;
@@ -35,7 +35,6 @@ import javax.persistence.EmbeddedId;
 import javax.persistence.Entity;
 import javax.persistence.FetchType;
 import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
 import javax.persistence.Id;
 import javax.persistence.IdClass;
 import javax.persistence.InheritanceType;
@@ -62,11 +61,13 @@ import javax.persistence.OrderColumn;
 import javax.persistence.PrimaryKeyJoinColumn;
 import javax.persistence.PrimaryKeyJoinColumns;
 import javax.persistence.SequenceGenerator;
+import javax.persistence.SequenceGenerators;
 import javax.persistence.SharedCacheMode;
 import javax.persistence.SqlResultSetMapping;
 import javax.persistence.SqlResultSetMappings;
 import javax.persistence.Table;
 import javax.persistence.TableGenerator;
+import javax.persistence.TableGenerators;
 import javax.persistence.UniqueConstraint;
 import javax.persistence.Version;
 
@@ -77,7 +78,6 @@ import org.hibernate.FetchMode;
 import org.hibernate.MappingException;
 import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.Cache;
-import org.hibernate.annotations.CacheConcurrencyStrategy;
 import org.hibernate.annotations.Cascade;
 import org.hibernate.annotations.CascadeType;
 import org.hibernate.annotations.Check;
@@ -104,7 +104,6 @@ import org.hibernate.annotations.ListIndexBase;
 import org.hibernate.annotations.ManyToAny;
 import org.hibernate.annotations.MapKeyType;
 import org.hibernate.annotations.NaturalId;
-import org.hibernate.annotations.NaturalIdCache;
 import org.hibernate.annotations.NotFound;
 import org.hibernate.annotations.NotFoundAction;
 import org.hibernate.annotations.OnDelete;
@@ -124,7 +123,6 @@ import org.hibernate.annotations.TypeDef;
 import org.hibernate.annotations.TypeDefs;
 import org.hibernate.annotations.Where;
 import org.hibernate.annotations.common.reflection.ClassLoadingException;
-import org.hibernate.annotations.common.reflection.ReflectionManager;
 import org.hibernate.annotations.common.reflection.XAnnotatedElement;
 import org.hibernate.annotations.common.reflection.XClass;
 import org.hibernate.annotations.common.reflection.XMethod;
@@ -133,6 +131,7 @@ import org.hibernate.annotations.common.reflection.XProperty;
 import org.hibernate.boot.model.IdGeneratorStrategyInterpreter;
 import org.hibernate.boot.model.IdentifierGeneratorDefinition;
 import org.hibernate.boot.model.TypeDefinition;
+import org.hibernate.boot.spi.InFlightMetadataCollector;
 import org.hibernate.boot.spi.InFlightMetadataCollector.EntityTableXref;
 import org.hibernate.boot.spi.MetadataBuildingContext;
 import org.hibernate.cfg.annotations.CollectionBinder;
@@ -155,7 +154,6 @@ import org.hibernate.mapping.Any;
 import org.hibernate.mapping.Component;
 import org.hibernate.mapping.Constraint;
 import org.hibernate.mapping.DependantValue;
-import org.hibernate.mapping.IdGenerator;
 import org.hibernate.mapping.Join;
 import org.hibernate.mapping.JoinedSubclass;
 import org.hibernate.mapping.KeyValue;
@@ -198,7 +196,7 @@ public final class AnnotationBinder {
 	}
 
 	public static void bindDefaults(MetadataBuildingContext context) {
-		Map defaults = context.getBuildingOptions().getReflectionManager().getDefaults();
+		Map defaults = context.getBootstrapContext().getReflectionManager().getDefaults();
 
 		// id generators ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -222,6 +220,34 @@ public final class AnnotationBinder {
 						context.getMetadataCollector().addDefaultIdentifierGenerator( idGen );
 					}
 				}
+			}
+		}
+
+		{
+			List<TableGenerators> anns = (List<TableGenerators>) defaults.get( TableGenerators.class );
+			if ( anns != null ) {
+				anns.forEach( tableGenerators -> {
+					for ( TableGenerator tableGenerator : tableGenerators.value() ) {
+						IdentifierGeneratorDefinition idGen = buildIdGenerator( tableGenerator, context );
+						if ( idGen != null ) {
+							context.getMetadataCollector().addDefaultIdentifierGenerator( idGen );
+						}
+					}
+				} );
+			}
+		}
+
+		{
+			List<SequenceGenerators> anns = (List<SequenceGenerators>) defaults.get( SequenceGenerators.class );
+			if ( anns != null ) {
+				anns.forEach( sequenceGenerators -> {
+					for ( SequenceGenerator ann : sequenceGenerators.value() ) {
+						IdentifierGeneratorDefinition idGen = buildIdGenerator( ann, context );
+						if ( idGen != null ) {
+							context.getMetadataCollector().addDefaultIdentifierGenerator( idGen );
+						}
+					}
+				} );
 			}
 		}
 
@@ -280,7 +306,7 @@ public final class AnnotationBinder {
 	public static void bindPackage(String packageName, MetadataBuildingContext context) {
 		XPackage pckg;
 		try {
-			pckg = context.getBuildingOptions().getReflectionManager().packageForName( packageName );
+			pckg = context.getBootstrapContext().getReflectionManager().packageForName( packageName );
 		}
 		catch (ClassLoadingException e) {
 			LOG.packageNotFound( packageName );
@@ -299,11 +325,23 @@ public final class AnnotationBinder {
 				LOG.tracev( "Add sequence generator with name: {0}", idGen.getName() );
 			}
 		}
+		if ( pckg.isAnnotationPresent( SequenceGenerators.class ) ) {
+			SequenceGenerators ann = pckg.getAnnotation( SequenceGenerators.class );
+			for ( SequenceGenerator tableGenerator : ann.value() ) {
+				context.getMetadataCollector().addIdentifierGenerator( buildIdGenerator( tableGenerator, context ) );
+			}
+		}
 
 		if ( pckg.isAnnotationPresent( TableGenerator.class ) ) {
 			TableGenerator ann = pckg.getAnnotation( TableGenerator.class );
 			IdentifierGeneratorDefinition idGen = buildIdGenerator( ann, context );
 			context.getMetadataCollector().addIdentifierGenerator( idGen );
+		}
+		if ( pckg.isAnnotationPresent( TableGenerators.class ) ) {
+			TableGenerators ann = pckg.getAnnotation( TableGenerators.class );
+			for ( TableGenerator tableGenerator : ann.value() ) {
+				context.getMetadataCollector().addIdentifierGenerator( buildIdGenerator( tableGenerator, context ) );
+			}
 		}
 
 		bindGenericGenerators( pckg, context );
@@ -415,8 +453,10 @@ public final class AnnotationBinder {
 		}
 	}
 
-	private static IdentifierGeneratorDefinition buildIdGenerator(java.lang.annotation.Annotation ann, MetadataBuildingContext context) {
-		if ( ann == null ) {
+	private static IdentifierGeneratorDefinition buildIdGenerator(
+			java.lang.annotation.Annotation generatorAnn,
+			MetadataBuildingContext context) {
+		if ( generatorAnn == null ) {
 			return null;
 		}
 
@@ -436,26 +476,26 @@ public final class AnnotationBinder {
 			);
 		}
 
-		if ( ann instanceof TableGenerator ) {
+		if ( generatorAnn instanceof TableGenerator ) {
 			context.getBuildingOptions().getIdGenerationTypeInterpreter().interpretTableGenerator(
-					(TableGenerator) ann,
+					(TableGenerator) generatorAnn,
 					definitionBuilder
 			);
 			if ( LOG.isTraceEnabled() ) {
 				LOG.tracev( "Add table generator with name: {0}", definitionBuilder.getName() );
 			}
 		}
-		else if ( ann instanceof SequenceGenerator ) {
+		else if ( generatorAnn instanceof SequenceGenerator ) {
 			context.getBuildingOptions().getIdGenerationTypeInterpreter().interpretSequenceGenerator(
-					(SequenceGenerator) ann,
+					(SequenceGenerator) generatorAnn,
 					definitionBuilder
 			);
 			if ( LOG.isTraceEnabled() ) {
 				LOG.tracev( "Add sequence generator with name: {0}", definitionBuilder.getName() );
 			}
 		}
-		else if ( ann instanceof GenericGenerator ) {
-			GenericGenerator genGen = ( GenericGenerator ) ann;
+		else if ( generatorAnn instanceof GenericGenerator ) {
+			GenericGenerator genGen = ( GenericGenerator ) generatorAnn;
 			definitionBuilder.setName( genGen.name() );
 			definitionBuilder.setStrategy( genGen.strategy() );
 			Parameter[] params = genGen.parameters();
@@ -467,19 +507,19 @@ public final class AnnotationBinder {
 			}
 		}
 		else {
-			throw new AssertionFailure( "Unknown Generator annotation: " + ann );
+			throw new AssertionFailure( "Unknown Generator annotation: " + generatorAnn );
 		}
 
 		return definitionBuilder.build();
 	}
 
 	/**
-	 * Bind a class having JSR175 annotations. Subclasses <b>have to</b> be bound afterQuery its parent class.
+	 * Bind a class having JSR175 annotations. Subclasses <b>have to</b> be bound after its parent class.
 	 *
 	 * @param clazzToProcess entity to bind as {@code XClass} instance
 	 * @param inheritanceStatePerClass Meta data about the inheritance relationships for all mapped classes
 	 *
-	 * @throws MappingException in case there is an configuration error
+	 * @throws MappingException in case there is a configuration error
 	 */
 	public static void bindClass(
 			XClass clazzToProcess,
@@ -518,6 +558,15 @@ public final class AnnotationBinder {
 				inheritanceState
 		);
 
+		if(superEntity != null && (
+				clazzToProcess.getAnnotation( AttributeOverride.class ) != null ||
+				clazzToProcess.getAnnotation( AttributeOverrides.class ) != null ) ) {
+			throw new AnnotationException(
+					"An entity annotated with @Inheritance cannot use @AttributeOverride or @AttributeOverrides: " +
+							clazzToProcess.getName()
+			);
+		}
+
 		PersistentClass persistentClass = makePersistentClass( inheritanceState, superEntity, context );
 		Entity entityAnn = clazzToProcess.getAnnotation( Entity.class );
 		org.hibernate.annotations.Entity hibEntityAnn = clazzToProcess.getAnnotation(
@@ -541,7 +590,7 @@ public final class AnnotationBinder {
 		String schema = "";
 		String table = ""; //might be no @Table annotation on the annotated class
 		String catalog = "";
-		List<UniqueConstraintHolder> uniqueConstraints = new ArrayList<UniqueConstraintHolder>();
+		List<UniqueConstraintHolder> uniqueConstraints = new ArrayList<>();
 		javax.persistence.Table tabAnn = null;
 		if ( clazzToProcess.isAnnotationPresent( javax.persistence.Table.class ) ) {
 			tabAnn = clazzToProcess.getAnnotation( javax.persistence.Table.class );
@@ -582,8 +631,7 @@ public final class AnnotationBinder {
 		entityBinder.setProxy( clazzToProcess.getAnnotation( Proxy.class ) );
 		entityBinder.setBatchSize( clazzToProcess.getAnnotation( BatchSize.class ) );
 		entityBinder.setWhere( clazzToProcess.getAnnotation( Where.class ) );
-		entityBinder.setCache( determineCacheSettings( clazzToProcess, context ) );
-		entityBinder.setNaturalIdCache( clazzToProcess, clazzToProcess.getAnnotation( NaturalIdCache.class ) );
+		applyCacheSettings( entityBinder, clazzToProcess, context );
 
 		bindFilters( clazzToProcess, entityBinder, context );
 
@@ -649,7 +697,7 @@ public final class AnnotationBinder {
 			if ( inheritanceState.hasParents() ) {
 				onDeleteAppropriate = true;
 				final JoinedSubclass jsc = ( JoinedSubclass ) persistentClass;
-				SimpleValue key = new DependantValue( context.getMetadataCollector(), jsc.getTable(), jsc.getIdentifier() );
+				SimpleValue key = new DependantValue( context, jsc.getTable(), jsc.getIdentifier() );
 				jsc.setKey( key );
 				ForeignKey fk = clazzToProcess.getAnnotation( ForeignKey.class );
 				if ( fk != null && !BinderHelper.isEmptyAnnotationValue( fk.name() ) ) {
@@ -725,15 +773,14 @@ public final class AnnotationBinder {
 		}
 
 		// try to find class level generators
-		HashMap<String, IdentifierGeneratorDefinition> classGenerators = buildLocalGenerators( clazzToProcess, context );
-
+		HashMap<String, IdentifierGeneratorDefinition> classGenerators = buildGenerators( clazzToProcess, context );
 		// check properties
 		final InheritanceState.ElementsToProcess elementsToProcess = inheritanceState.getElementsToProcess();
 		inheritanceState.postProcess( persistentClass, entityBinder );
 
 		final boolean subclassAndSingleTableStrategy = inheritanceState.getType() == InheritanceType.SINGLE_TABLE
 				&& inheritanceState.hasParents();
-		Set<String> idPropertiesIfIdClass = new HashSet<String>();
+		Set<String> idPropertiesIfIdClass = new HashSet<>();
 		boolean isIdClass = mapAsIdClass(
 				inheritanceStatePerClass,
 				inheritanceState,
@@ -918,7 +965,7 @@ public final class AnnotationBinder {
 			InheritanceState.ElementsToProcess elementsToProcess,
 			boolean subclassAndSingleTableStrategy,
 			Set<String> idPropertiesIfIdClass) {
-		Set<String> missingIdProperties = new HashSet<String>( idPropertiesIfIdClass );
+		Set<String> missingIdProperties = new HashSet<>( idPropertiesIfIdClass );
 		for ( PropertyData propertyAnnotatedElement : elementsToProcess.getElements() ) {
 			String propertyName = propertyAnnotatedElement.getPropertyName();
 			if ( !idPropertiesIfIdClass.contains( propertyName ) ) {
@@ -975,7 +1022,7 @@ public final class AnnotationBinder {
 		XClass classWithIdClass = inheritanceState.getClassWithIdClass( false );
 		if ( classWithIdClass != null ) {
 			IdClass idClass = classWithIdClass.getAnnotation( IdClass.class );
-			XClass compositeClass = context.getBuildingOptions().getReflectionManager().toXClass( idClass.value() );
+			XClass compositeClass = context.getBootstrapContext().getReflectionManager().toXClass( idClass.value() );
 			PropertyData inferredData = new PropertyPreloadedData(
 					entityBinder.getPropertyAccessType(), "id", compositeClass
 			);
@@ -1104,7 +1151,7 @@ public final class AnnotationBinder {
 
 			}
 			else {
-				final XClass idClass = context.getBuildingOptions().getReflectionManager().toXClass(
+				final XClass idClass = context.getBootstrapContext().getReflectionManager().toXClass(
 						associatedClassWithIdClass.getAnnotation( IdClass.class ).value()
 				);
 				return idClass.equals( compositeClass );
@@ -1115,78 +1162,17 @@ public final class AnnotationBinder {
 		}
 	}
 
-	private static Cache determineCacheSettings(XClass clazzToProcess, MetadataBuildingContext context) {
-		Cache cacheAnn = clazzToProcess.getAnnotation( Cache.class );
-		if ( cacheAnn != null ) {
-			return cacheAnn;
-		}
+	private static void applyCacheSettings(EntityBinder binder, XClass clazzToProcess, MetadataBuildingContext context) {
+		binder.applyCaching(
+				clazzToProcess,
+				determineSharedCacheMode( context ),
+				context
 
-		Cacheable cacheableAnn = clazzToProcess.getAnnotation( Cacheable.class );
-		SharedCacheMode mode = determineSharedCacheMode( context );
-		switch ( mode ) {
-			case ALL: {
-				cacheAnn = buildCacheMock( clazzToProcess.getName(), context );
-				break;
-			}
-			case ENABLE_SELECTIVE: {
-				if ( cacheableAnn != null && cacheableAnn.value() ) {
-					cacheAnn = buildCacheMock( clazzToProcess.getName(), context );
-				}
-				break;
-			}
-			case DISABLE_SELECTIVE: {
-				if ( cacheableAnn == null || cacheableAnn.value() ) {
-					cacheAnn = buildCacheMock( clazzToProcess.getName(), context );
-				}
-				break;
-			}
-			default: {
-				// treat both NONE and UNSPECIFIED the same
-				break;
-			}
-		}
-		return cacheAnn;
+		);
 	}
 
 	private static SharedCacheMode determineSharedCacheMode(MetadataBuildingContext context) {
 		return context.getBuildingOptions().getSharedCacheMode();
-	}
-
-	private static Cache buildCacheMock(String region, MetadataBuildingContext context) {
-		return new LocalCacheAnnotationImpl( region, determineCacheConcurrencyStrategy( context ) );
-	}
-
-	private static CacheConcurrencyStrategy determineCacheConcurrencyStrategy(MetadataBuildingContext context) {
-		return CacheConcurrencyStrategy.fromAccessType(
-				context.getBuildingOptions().getImplicitCacheAccessType()
-		);
-	}
-
-	@SuppressWarnings({ "ClassExplicitlyAnnotation" })
-	private static class LocalCacheAnnotationImpl implements Cache {
-		private final String region;
-		private final CacheConcurrencyStrategy usage;
-
-		private LocalCacheAnnotationImpl(String region, CacheConcurrencyStrategy usage) {
-			this.region = region;
-			this.usage = usage;
-		}
-
-		public CacheConcurrencyStrategy usage() {
-			return usage;
-		}
-
-		public String region() {
-			return region;
-		}
-
-		public String include() {
-			return "all";
-		}
-
-		public Class<? extends Annotation> annotationType() {
-			return Cache.class;
-		}
 	}
 
 	private static PersistentClass makePersistentClass(
@@ -1277,7 +1263,7 @@ public final class AnnotationBinder {
 			//check if superclass is not a potential persistent class
 			if ( inheritanceState.hasParents() ) {
 				throw new AssertionFailure(
-						"Subclass has to be binded afterQuery it's mother class: "
+						"Subclass has to be binded after it's mother class: "
 								+ superEntityState.getClazz().getName()
 				);
 			}
@@ -1362,7 +1348,7 @@ public final class AnnotationBinder {
 	}
 
 	private static void bindFilterDef(FilterDef defAnn, MetadataBuildingContext context) {
-		Map<String, org.hibernate.type.Type> params = new HashMap<String, org.hibernate.type.Type>();
+		Map<String, org.hibernate.type.Type> params = new HashMap<>();
 		for ( ParamDef param : defAnn.parameters() ) {
 			params.put( param.name(), context.getMetadataCollector().getTypeResolver().heuristicType( param.type() ) );
 		}
@@ -1471,7 +1457,7 @@ public final class AnnotationBinder {
 			}
 			discriminatorColumn.setJoins( secondaryTables );
 			discriminatorColumn.setPropertyHolder( propertyHolder );
-			SimpleValue discriminatorColumnBinding = new SimpleValue( context.getMetadataCollector(), rootClass.getTable() );
+			SimpleValue discriminatorColumnBinding = new SimpleValue( context, rootClass.getTable() );
 			rootClass.setDiscriminator( discriminatorColumnBinding );
 			discriminatorColumn.linkWithValue( discriminatorColumnBinding );
 			discriminatorColumnBinding.setTypeName( discriminatorColumn.getDiscriminatorTypeName() );
@@ -1529,12 +1515,12 @@ public final class AnnotationBinder {
 				declaringClass,
 				property,
 				propertyContainer.getClassLevelAccessType().getType(),
-				context.getBuildingOptions().getReflectionManager()
+				context.getBootstrapContext().getReflectionManager()
 		);
 
 		/*
 		 * put element annotated by @Id in front
-		 * since it has to be parsed beforeQuery any association by Hibernate
+		 * since it has to be parsed before any association by Hibernate
 		 */
 		final XAnnotatedElement element = propertyAnnotatedElement.getProperty();
 		if ( element.isAnnotationPresent( Id.class ) || element.isAnnotationPresent( EmbeddedId.class ) ) {
@@ -1577,7 +1563,7 @@ public final class AnnotationBinder {
 										// the actual @XToOne property
 										propertyContainer.getClassLevelAccessType().getType(),
 										//TODO we should get the right accessor but the same as id would do
-										context.getBuildingOptions().getReflectionManager()
+										context.getBootstrapContext().getReflectionManager()
 								);
 								context.getMetadataCollector().addPropertyAnnotatedWithMapsIdSpecj(
 										entity,
@@ -2092,7 +2078,7 @@ public final class AnnotationBinder {
 					collectionBinder.setFkJoinColumns( joinColumns );
 					mappedBy = oneToManyAnn.mappedBy();
 					collectionBinder.setTargetEntity(
-							context.getBuildingOptions().getReflectionManager().toXClass( oneToManyAnn.targetEntity() )
+							context.getBootstrapContext().getReflectionManager().toXClass( oneToManyAnn.targetEntity() )
 					);
 					collectionBinder.setCascadeStrategy(
 							getCascadeStrategy(
@@ -2111,7 +2097,7 @@ public final class AnnotationBinder {
 					mappedBy = "";
 					final Class<?> targetElement = elementCollectionAnn.targetClass();
 					collectionBinder.setTargetEntity(
-							context.getBuildingOptions().getReflectionManager().toXClass( targetElement )
+							context.getBootstrapContext().getReflectionManager().toXClass( targetElement )
 					);
 					//collectionBinder.setCascadeStrategy( getCascadeStrategy( embeddedCollectionAnn.cascade(), hibernateCascade ) );
 					collectionBinder.setOneToMany( true );
@@ -2119,7 +2105,7 @@ public final class AnnotationBinder {
 				else if ( manyToManyAnn != null ) {
 					mappedBy = manyToManyAnn.mappedBy();
 					collectionBinder.setTargetEntity(
-							context.getBuildingOptions().getReflectionManager().toXClass( manyToManyAnn.targetEntity() )
+							context.getBootstrapContext().getReflectionManager().toXClass( manyToManyAnn.targetEntity() )
 					);
 					collectionBinder.setCascadeStrategy(
 							getCascadeStrategy(
@@ -2131,7 +2117,7 @@ public final class AnnotationBinder {
 				else if ( property.isAnnotationPresent( ManyToAny.class ) ) {
 					mappedBy = "";
 					collectionBinder.setTargetEntity(
-							context.getBuildingOptions().getReflectionManager().toXClass( void.class )
+							context.getBootstrapContext().getReflectionManager().toXClass( void.class )
 					);
 					collectionBinder.setCascadeStrategy( getCascadeStrategy( null, hibernateCascade, false, false ) );
 					collectionBinder.setOneToMany( false );
@@ -2157,7 +2143,7 @@ public final class AnnotationBinder {
 				}
 				if ( property.isAnnotationPresent( CollectionId.class ) ) { //do not compute the generators unless necessary
 					HashMap<String, IdentifierGeneratorDefinition> localGenerators = ( HashMap<String, IdentifierGeneratorDefinition> ) classGenerators.clone();
-					localGenerators.putAll( buildLocalGenerators( property, context ) );
+					localGenerators.putAll( buildGenerators( property, context ) );
 					collectionBinder.setLocalGenerators( localGenerators );
 
 				}
@@ -2265,22 +2251,37 @@ public final class AnnotationBinder {
 					final PropertyData mapsIdProperty = BinderHelper.getPropertyOverriddenByMapperOrMapsId(
 							isId, propertyHolder, property.getName(), context
 					);
-					Map<String, IdentifierGeneratorDefinition> localGenerators = ( HashMap<String, IdentifierGeneratorDefinition> ) classGenerators.clone();
 					final IdentifierGeneratorDefinition.Builder foreignGeneratorBuilder = new IdentifierGeneratorDefinition.Builder();
 					foreignGeneratorBuilder.setName( "Hibernate-local--foreign generator" );
 					foreignGeneratorBuilder.setStrategy( "foreign" );
 					foreignGeneratorBuilder.addParam( "property", mapsIdProperty.getPropertyName() );
-
 					final IdentifierGeneratorDefinition foreignGenerator = foreignGeneratorBuilder.build();
-					localGenerators.put( foreignGenerator.getName(), foreignGenerator );
 
-					BinderHelper.makeIdGenerator(
-							( SimpleValue ) propertyBinder.getValue(),
-							foreignGenerator.getStrategy(),
-							foreignGenerator.getName(),
-							context,
-							localGenerators
-					);
+					if ( isGlobalGeneratorNameGlobal( context ) ) {
+						SecondPass secondPass = new IdGeneratorResolverSecondPass(
+								(SimpleValue) propertyBinder.getValue(),
+								property,
+								foreignGenerator.getStrategy(),
+								foreignGenerator.getName(),
+								context,
+								foreignGenerator
+						);
+						context.getMetadataCollector().addSecondPass( secondPass );
+					}
+					else {
+						Map<String, IdentifierGeneratorDefinition> localGenerators = (HashMap<String, IdentifierGeneratorDefinition>) classGenerators
+								.clone();
+						localGenerators.put( foreignGenerator.getName(), foreignGenerator );
+
+						BinderHelper.makeIdGenerator(
+								(SimpleValue) propertyBinder.getValue(),
+								property,
+								foreignGenerator.getStrategy(),
+								foreignGenerator.getName(),
+								context,
+								localGenerators
+						);
+					}
 				}
 				if ( isId ) {
 					//components and regular basic types create SimpleValue objects
@@ -2299,7 +2300,7 @@ public final class AnnotationBinder {
 			}
 		}
 		//init index
-		//process indexes afterQuery everything: in second pass, many to one has to be done beforeQuery indexes
+		//process indexes after everything: in second pass, many to one has to be done before indexes
 		Index index = property.getAnnotation( Index.class );
 		if ( index != null ) {
 			if ( joinColumns != null ) {
@@ -2338,6 +2339,10 @@ public final class AnnotationBinder {
 		}
 	}
 
+	private static boolean isGlobalGeneratorNameGlobal(MetadataBuildingContext context) {
+		return context.getBootstrapContext().getJpaCompliance().isGlobalGeneratorScopeEnabled();
+	}
+
 	private static boolean isToManyAssociationWithinEmbeddableCollection(PropertyHolder propertyHolder) {
 		if(propertyHolder instanceof ComponentPropertyHolder) {
 			ComponentPropertyHolder componentPropertyHolder = (ComponentPropertyHolder) propertyHolder;
@@ -2367,20 +2372,17 @@ public final class AnnotationBinder {
 							+ BinderHelper.getPath( propertyHolder, inferredData )
 			);
 		}
-		XClass returnedClass = inferredData.getClassOrElement();
-		XProperty property = inferredData.getProperty();
-		//clone classGenerator and override with local values
-		HashMap<String, IdentifierGeneratorDefinition> localGenerators = ( HashMap<String, IdentifierGeneratorDefinition> ) classGenerators.clone();
-		localGenerators.putAll( buildLocalGenerators( property, buildingContext ) );
+		XClass entityXClass = inferredData.getClassOrElement();
+		XProperty idXProperty = inferredData.getProperty();
 
 		//manage composite related metadata
 		//guess if its a component and find id data access (property, field etc)
-		final boolean isComponent = returnedClass.isAnnotationPresent( Embeddable.class )
-				|| property.isAnnotationPresent( EmbeddedId.class );
+		final boolean isComponent = entityXClass.isAnnotationPresent( Embeddable.class )
+				|| idXProperty.isAnnotationPresent( EmbeddedId.class );
 
-		GeneratedValue generatedValue = property.getAnnotation( GeneratedValue.class );
+		GeneratedValue generatedValue = idXProperty.getAnnotation( GeneratedValue.class );
 		String generatorType = generatedValue != null
-				? generatorType( generatedValue.strategy(), buildingContext, returnedClass )
+				? generatorType( generatedValue, buildingContext, entityXClass )
 				: "assigned";
 		String generatorName = generatedValue != null
 				? generatedValue.generator()
@@ -2389,11 +2391,63 @@ public final class AnnotationBinder {
 			//a component must not have any generator
 			generatorType = "assigned";
 		}
-		BinderHelper.makeIdGenerator( idValue, generatorType, generatorName, buildingContext, localGenerators );
+
+		if ( isGlobalGeneratorNameGlobal( buildingContext ) ) {
+			buildGenerators( idXProperty, buildingContext );
+			SecondPass secondPass = new IdGeneratorResolverSecondPass(
+					idValue,
+					idXProperty,
+					generatorType,
+					generatorName,
+					buildingContext
+			);
+			buildingContext.getMetadataCollector().addSecondPass( secondPass );
+		}
+		else {
+			//clone classGenerator and override with local values
+			HashMap<String, IdentifierGeneratorDefinition> localGenerators = (HashMap<String, IdentifierGeneratorDefinition>) classGenerators
+					.clone();
+			localGenerators.putAll( buildGenerators( idXProperty, buildingContext ) );
+			BinderHelper.makeIdGenerator(
+					idValue,
+					idXProperty,
+					generatorType,
+					generatorName,
+					buildingContext,
+					localGenerators
+			);
+		}
 
 		if ( LOG.isTraceEnabled() ) {
 			LOG.tracev( "Bind {0} on {1}", ( isComponent ? "@EmbeddedId" : "@Id" ), inferredData.getPropertyName() );
 		}
+	}
+
+	public static String generatorType(
+			GeneratedValue generatedValueAnn,
+			final MetadataBuildingContext buildingContext,
+			final XClass javaTypeXClass) {
+		return buildingContext.getBuildingOptions().getIdGenerationTypeInterpreter().determineGeneratorName(
+				generatedValueAnn.strategy(),
+				new IdGeneratorStrategyInterpreter.GeneratorNameDeterminationContext() {
+					Class javaType = null;
+					@Override
+					public Class getIdType() {
+						if ( javaType == null ) {
+							javaType = buildingContext
+									.getBootstrapContext()
+									.getReflectionManager()
+									.toClass( javaTypeXClass );
+						}
+						return javaType;
+					}
+
+					@Override
+					public String getGeneratedValueGeneratorName() {
+						return generatedValueAnn.generator();
+					}
+				}
+		);
 	}
 
 	//TODO move that to collection binder?
@@ -2612,14 +2666,14 @@ public final class AnnotationBinder {
 		propertyHolder.startingProperty( inferredData.getProperty() );
 
 		final XClass xClassProcessed = inferredData.getPropertyClass();
-		List<PropertyData> classElements = new ArrayList<PropertyData>();
+		List<PropertyData> classElements = new ArrayList<>();
 		XClass returnedClassOrElement = inferredData.getClassOrElement();
 
 		List<PropertyData> baseClassElements = null;
-		Map<String, PropertyData> orderedBaseClassElements = new HashMap<String, PropertyData>();
+		Map<String, PropertyData> orderedBaseClassElements = new HashMap<>();
 		XClass baseReturnedClassOrElement;
 		if ( baseInferredData != null ) {
-			baseClassElements = new ArrayList<PropertyData>();
+			baseClassElements = new ArrayList<>();
 			baseReturnedClassOrElement = baseInferredData.getClassOrElement();
 			bindTypeDefs( baseReturnedClassOrElement, buildingContext );
 			// iterate from base returned class up hierarchy to handle cases where the @Id attributes
@@ -2687,7 +2741,7 @@ public final class AnnotationBinder {
 							? Nullability.NO_CONSTRAINT
 							: Nullability.FORCED_NOT_NULL,
 					propertyAnnotatedElement,
-					new HashMap<String, IdentifierGeneratorDefinition>(),
+					new HashMap<>(),
 					entityBinder,
 					isIdentifierMapper,
 					isComponentEmbedded,
@@ -2699,25 +2753,38 @@ public final class AnnotationBinder {
 			XProperty property = propertyAnnotatedElement.getProperty();
 			if ( property.isAnnotationPresent( GeneratedValue.class ) &&
 					property.isAnnotationPresent( Id.class ) ) {
-				//clone classGenerator and override with local values
-				Map<String, IdentifierGeneratorDefinition> localGenerators = new HashMap<String, IdentifierGeneratorDefinition>();
-				localGenerators.putAll( buildLocalGenerators( property, buildingContext ) );
-
 				GeneratedValue generatedValue = property.getAnnotation( GeneratedValue.class );
 				String generatorType = generatedValue != null
-						? generatorType( generatedValue.strategy(), buildingContext, property.getType() )
+						? generatorType( generatedValue, buildingContext, property.getType() )
 						: "assigned";
-				String generator = generatedValue != null ? generatedValue.generator() : BinderHelper.ANNOTATION_STRING_DEFAULT;
+				String generator = generatedValue != null ?
+						generatedValue.generator() :
+						BinderHelper.ANNOTATION_STRING_DEFAULT;
 
-				BinderHelper.makeIdGenerator(
-						( SimpleValue ) comp.getProperty( property.getName() ).getValue(),
-						generatorType,
-						generator,
-						buildingContext,
-						localGenerators
-				);
+				if ( isGlobalGeneratorNameGlobal( buildingContext ) ) {
+					buildGenerators( property, buildingContext );
+					SecondPass secondPass = new IdGeneratorResolverSecondPass(
+							(SimpleValue) comp.getProperty( property.getName() ).getValue(),
+							property,
+							generatorType,
+							generator,
+							buildingContext
+					);
+					buildingContext.getMetadataCollector().addSecondPass( secondPass );
+				}
+				else {
+					Map<String, IdentifierGeneratorDefinition> localGenerators = new HashMap<>();
+					localGenerators.putAll( buildGenerators( property, buildingContext ) );
+					BinderHelper.makeIdGenerator(
+							(SimpleValue) comp.getProperty( property.getName() ).getValue(),
+							property,
+							generatorType,
+							generator,
+							buildingContext,
+							localGenerators
+					);
+				}
 			}
-
 		}
 		return comp;
 	}
@@ -2728,7 +2795,7 @@ public final class AnnotationBinder {
 			boolean isComponentEmbedded,
 			boolean isIdentifierMapper,
 			MetadataBuildingContext context) {
-		Component comp = new Component( context.getMetadataCollector(), propertyHolder.getPersistentClass() );
+		Component comp = new Component( context, propertyHolder.getPersistentClass() );
 		comp.setEmbedded( isComponentEmbedded );
 		//yuk
 		comp.setTable( propertyHolder.getTable() );
@@ -2771,7 +2838,6 @@ public final class AnnotationBinder {
 		String persistentClassName = rootClass.getClassName();
 		SimpleValue id;
 		final String propertyName = inferredData.getPropertyName();
-		HashMap<String, IdGenerator> localGenerators = new HashMap<String, IdGenerator>();
 		if ( isComposite ) {
 			id = fillComponent(
 					propertyHolder,
@@ -2815,13 +2881,27 @@ public final class AnnotationBinder {
 			id = value.make();
 		}
 		rootClass.setIdentifier( id );
-		BinderHelper.makeIdGenerator(
-				id,
-				generatorType,
-				generatorName,
-				buildingContext,
-				Collections.<String, IdentifierGeneratorDefinition>emptyMap()
-		);
+		if ( isGlobalGeneratorNameGlobal( buildingContext ) ) {
+			SecondPass secondPass = new IdGeneratorResolverSecondPass(
+					id,
+					inferredData.getProperty(),
+					generatorType,
+					generatorName,
+					buildingContext
+			);
+			buildingContext.getMetadataCollector().addSecondPass( secondPass );
+		}
+		else {
+			BinderHelper.makeIdGenerator(
+					id,
+					inferredData.getProperty(),
+					generatorType,
+					generatorName,
+					buildingContext,
+					Collections.emptyMap()
+			);
+		}
+
 		if ( isEmbedded ) {
 			rootClass.setEmbeddedIdentifier( inferredData.getPropertyClass() == null );
 		}
@@ -2854,7 +2934,7 @@ public final class AnnotationBinder {
 			PropertyData baseInferredData,
 			AccessType propertyAccessor,
 			MetadataBuildingContext context) {
-		List<PropertyData> baseClassElements = new ArrayList<PropertyData>();
+		List<PropertyData> baseClassElements = new ArrayList<>();
 		XClass baseReturnedClassOrElement = baseInferredData.getClassOrElement();
 		PropertyContainer propContainer = new PropertyContainer(
 				baseReturnedClassOrElement,
@@ -2900,7 +2980,7 @@ public final class AnnotationBinder {
 			PropertyBinder propertyBinder,
 			MetadataBuildingContext context) {
 		//All FK columns should be in the same table
-		org.hibernate.mapping.ManyToOne value = new org.hibernate.mapping.ManyToOne( context.getMetadataCollector(), columns[0].getTable() );
+		org.hibernate.mapping.ManyToOne value = new org.hibernate.mapping.ManyToOne( context, columns[0].getTable() );
 		// This is a @OneToOne mapped to a physical o.h.mapping.ManyToOne
 		if ( unique ) {
 			value.markAsLogicalOneToOne();
@@ -3102,7 +3182,7 @@ public final class AnnotationBinder {
 			}
 			else {
 				Iterator idColumns = identifier.getColumnIterator();
-				List<String> idColumnNames = new ArrayList<String>();
+				List<String> idColumnNames = new ArrayList<>();
 				org.hibernate.mapping.Column currentColumn;
 				if ( identifier.getColumnSpan() != joinColumns.length ) {
 					mapToPK = false;
@@ -3211,27 +3291,6 @@ public final class AnnotationBinder {
 		propertyHolder.addProperty( prop, columns, inferredData.getDeclaringClass() );
 	}
 
-	private static String generatorType(
-			GenerationType generatorEnum,
-			final MetadataBuildingContext buildingContext,
-			final XClass javaTypeXClass) {
-		return buildingContext.getBuildingOptions().getIdGenerationTypeInterpreter().determineGeneratorName(
-				generatorEnum,
-				new IdGeneratorStrategyInterpreter.GeneratorNameDeterminationContext() {
-					Class javaType = null;
-					@Override
-					public Class getIdType() {
-						if ( javaType == null ) {
-							javaType = buildingContext.getBuildingOptions()
-									.getReflectionManager()
-									.toClass( javaTypeXClass );
-						}
-						return javaType;
-					}
-				}
-		);
-	}
-
 	private static EnumSet<CascadeType> convertToHibernateCascadeType(javax.persistence.CascadeType[] ejbCascades) {
 		EnumSet<CascadeType> hibernateCascadeSet = EnumSet.noneOf( CascadeType.class );
 		if ( ejbCascades != null && ejbCascades.length > 0 ) {
@@ -3337,28 +3396,64 @@ public final class AnnotationBinder {
 		}
 	}
 
-	private static HashMap<String, IdentifierGeneratorDefinition> buildLocalGenerators(XAnnotatedElement annElt, MetadataBuildingContext context) {
-		HashMap<String, IdentifierGeneratorDefinition> generators = new HashMap<String, IdentifierGeneratorDefinition>();
+	private static HashMap<String, IdentifierGeneratorDefinition> buildGenerators(XAnnotatedElement annElt, MetadataBuildingContext context) {
+		InFlightMetadataCollector metadataCollector = context.getMetadataCollector();
+		HashMap<String, IdentifierGeneratorDefinition> generators = new HashMap<>();
+
+		TableGenerators tableGenerators = annElt.getAnnotation( TableGenerators.class );
+		if ( tableGenerators != null ) {
+			for ( TableGenerator tableGenerator : tableGenerators.value() ) {
+				IdentifierGeneratorDefinition idGenerator = buildIdGenerator(
+						tableGenerator,
+						context
+				);
+				generators.put(
+						idGenerator.getName(),
+						idGenerator
+				);
+				metadataCollector.addIdentifierGenerator( idGenerator );
+			}
+		}
+
+		SequenceGenerators sequenceGenerators = annElt.getAnnotation( SequenceGenerators.class );
+		if ( sequenceGenerators != null ) {
+			for ( SequenceGenerator sequenceGenerator : sequenceGenerators.value() ) {
+				IdentifierGeneratorDefinition idGenerator = buildIdGenerator(
+						sequenceGenerator,
+						context
+				);
+				generators.put(
+						idGenerator.getName(),
+						idGenerator
+				);
+				metadataCollector.addIdentifierGenerator( idGenerator );
+			}
+		}
+
 		TableGenerator tabGen = annElt.getAnnotation( TableGenerator.class );
 		SequenceGenerator seqGen = annElt.getAnnotation( SequenceGenerator.class );
 		GenericGenerator genGen = annElt.getAnnotation( GenericGenerator.class );
 		if ( tabGen != null ) {
 			IdentifierGeneratorDefinition idGen = buildIdGenerator( tabGen, context );
 			generators.put( idGen.getName(), idGen );
+			metadataCollector.addIdentifierGenerator( idGen );
+
 		}
 		if ( seqGen != null ) {
 			IdentifierGeneratorDefinition idGen = buildIdGenerator( seqGen, context );
 			generators.put( idGen.getName(), idGen );
+			metadataCollector.addIdentifierGenerator( idGen );
 		}
 		if ( genGen != null ) {
 			IdentifierGeneratorDefinition idGen = buildIdGenerator( genGen, context );
 			generators.put( idGen.getName(), idGen );
+			metadataCollector.addIdentifierGenerator( idGen );
 		}
 		return generators;
 	}
 
 	public static boolean isDefault(XClass clazz, MetadataBuildingContext context) {
-		return context.getBuildingOptions().getReflectionManager().equals( clazz, void.class );
+		return context.getBootstrapContext().getReflectionManager().equals( clazz, void.class );
 	}
 
 	/**
@@ -3372,8 +3467,7 @@ public final class AnnotationBinder {
 	public static Map<XClass, InheritanceState> buildInheritanceStates(
 			List<XClass> orderedClasses,
 			MetadataBuildingContext buildingContext) {
-		ReflectionManager reflectionManager = buildingContext.getBuildingOptions().getReflectionManager();
-		Map<XClass, InheritanceState> inheritanceStatePerClass = new HashMap<XClass, InheritanceState>(
+		Map<XClass, InheritanceState> inheritanceStatePerClass = new HashMap<>(
 				orderedClasses.size()
 		);
 		for ( XClass clazz : orderedClasses ) {

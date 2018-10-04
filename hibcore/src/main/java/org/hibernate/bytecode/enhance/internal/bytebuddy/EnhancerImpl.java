@@ -6,6 +6,9 @@
  */
 package org.hibernate.bytecode.enhance.internal.bytebuddy;
 
+import static net.bytebuddy.matcher.ElementMatchers.isDefaultFinalizer;
+import static net.bytebuddy.matcher.ElementMatchers.isGetter;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -13,6 +16,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
 import javax.persistence.Access;
 import javax.persistence.AccessType;
 import javax.persistence.Transient;
@@ -25,58 +29,59 @@ import org.hibernate.bytecode.enhance.spi.EnhancementException;
 import org.hibernate.bytecode.enhance.spi.Enhancer;
 import org.hibernate.bytecode.enhance.spi.EnhancerConstants;
 import org.hibernate.bytecode.enhance.spi.interceptor.LazyAttributeLoadingInterceptor;
-import org.hibernate.engine.spi.ExtendedSelfDirtinessTracker;
+import org.hibernate.bytecode.internal.bytebuddy.ByteBuddyState;
 import org.hibernate.engine.spi.CompositeOwner;
 import org.hibernate.engine.spi.CompositeTracker;
 import org.hibernate.engine.spi.EntityEntry;
+import org.hibernate.engine.spi.ExtendedSelfDirtinessTracker;
 import org.hibernate.engine.spi.Managed;
 import org.hibernate.engine.spi.ManagedComposite;
 import org.hibernate.engine.spi.ManagedEntity;
 import org.hibernate.engine.spi.ManagedMappedSuperclass;
 import org.hibernate.engine.spi.PersistentAttributeInterceptable;
 import org.hibernate.engine.spi.PersistentAttributeInterceptor;
+import org.hibernate.engine.spi.SelfDirtinessTracker;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
 
-import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.annotation.AnnotationDescription;
 import net.bytebuddy.description.field.FieldDescription;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.method.MethodList;
-import net.bytebuddy.description.modifier.FieldManifestation;
+import net.bytebuddy.description.modifier.FieldPersistence;
 import net.bytebuddy.description.modifier.Visibility;
 import net.bytebuddy.description.type.TypeDefinition;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.scaffold.MethodGraph;
-import net.bytebuddy.dynamic.scaffold.TypeValidation;
 import net.bytebuddy.implementation.FieldAccessor;
 import net.bytebuddy.implementation.FixedValue;
 import net.bytebuddy.implementation.Implementation;
 import net.bytebuddy.implementation.StubMethod;
 import net.bytebuddy.pool.TypePool;
 
-import static net.bytebuddy.matcher.ElementMatchers.isGetter;
-
 public class EnhancerImpl implements Enhancer {
 
 	private static final CoreMessageLogger log = CoreLogging.messageLogger( Enhancer.class );
 
 	protected final ByteBuddyEnhancementContext enhancementContext;
+	private final ByteBuddyState byteBuddyState;
 
-	private final TypePool classPool;
+	private final TypePool typePool;
 
 	/**
 	 * Constructs the Enhancer, using the given context.
 	 *
 	 * @param enhancementContext Describes the context in which enhancement will occur so as to give access
 	 * to contextual/environmental information.
+	 * @param byteBuddyState refers to the ByteBuddy instance to use
 	 */
-	public EnhancerImpl(EnhancementContext enhancementContext) {
+	public EnhancerImpl(final EnhancementContext enhancementContext, final ByteBuddyState byteBuddyState) {
 		this.enhancementContext = new ByteBuddyEnhancementContext( enhancementContext );
-		classPool = buildClassPool( this.enhancementContext );
+		this.byteBuddyState = byteBuddyState;
+		this.typePool = buildTypePool( this.enhancementContext );
 	}
 
 	/**
@@ -92,27 +97,22 @@ public class EnhancerImpl implements Enhancer {
 	 */
 	@Override
 	public synchronized byte[] enhance(String className, byte[] originalBytes) throws EnhancementException {
+		//Classpool#describe does not accept '/' in the description name as it expects a class name. See HHH-12545
+		final String safeClassName = className.replace( '/', '.' );
 		try {
-			final TypeDescription managedCtClass = classPool.describe( className ).resolve();
-			DynamicType.Builder<?> builder = doEnhance(
-					new ByteBuddy().with( TypeValidation.DISABLED ).redefine( managedCtClass, ClassFileLocator.Simple.of( className, originalBytes ) ),
-					managedCtClass
-			);
-			if ( builder == null ) {
-				return null;
-			}
-			else {
-				return builder.make().getBytes();
-			}
+			final TypeDescription typeDescription = typePool.describe( safeClassName ).resolve();
+
+			return byteBuddyState.rewrite( typePool, safeClassName, originalBytes, byteBuddy -> doEnhance(
+					byteBuddy.ignore( isDefaultFinalizer() ).redefine( typeDescription, ClassFileLocator.Simple.of( safeClassName, originalBytes ) ),
+					typeDescription
+			) );
 		}
 		catch (RuntimeException e) {
-			e.printStackTrace();
-			log.unableToBuildEnhancementMetamodel( className );
-			return null;
+			throw new EnhancementException( "Failed to enhance class " + className, e );
 		}
 	}
 
-	private TypePool buildClassPool(final ByteBuddyEnhancementContext enhancementContext) {
+	private TypePool buildTypePool(final ByteBuddyEnhancementContext enhancementContext) {
 		return TypePool.Default.WithLazyResolution.of( enhancementContext.getLoadingClassLoader() );
 	}
 
@@ -128,7 +128,7 @@ public class EnhancerImpl implements Enhancer {
 			return null;
 		}
 
-		PersistentAttributeTransformer transformer = PersistentAttributeTransformer.collectPersistentFields( managedCtClass, enhancementContext, classPool );
+		PersistentAttributeTransformer transformer = PersistentAttributeTransformer.collectPersistentFields( managedCtClass, enhancementContext, typePool );
 
 		if ( enhancementContext.isEntityClass( managedCtClass ) ) {
 			log.infof( "Enhancing [%s] as Entity", managedCtClass.getName() );
@@ -161,29 +161,48 @@ public class EnhancerImpl implements Enhancer {
 			builder = addInterceptorHandling( builder, managedCtClass );
 
 			if ( enhancementContext.doDirtyCheckingInline( managedCtClass ) ) {
-				builder = builder.implement( ExtendedSelfDirtinessTracker.class )
-						.defineField( EnhancerConstants.TRACKER_FIELD_NAME, DirtyTracker.class, FieldManifestation.TRANSIENT, Visibility.PRIVATE )
-						.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
-						.defineField( EnhancerConstants.TRACKER_COLLECTION_NAME, CollectionTracker.class, FieldManifestation.TRANSIENT, Visibility.PRIVATE )
-						.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
-						.defineMethod( EnhancerConstants.TRACKER_CHANGER_NAME, void.class, Visibility.PUBLIC )
-						.withParameters( String.class )
-						.intercept( Advice.to( CodeTemplates.TrackChange.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( EnhancerConstants.TRACKER_GET_NAME, String[].class, Visibility.PUBLIC )
-						.intercept( Advice.to( CodeTemplates.GetDirtyAttributes.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( EnhancerConstants.TRACKER_HAS_CHANGED_NAME, boolean.class, Visibility.PUBLIC )
-						.intercept( Advice.to( CodeTemplates.AreCollectionFieldsDirty.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( EnhancerConstants.TRACKER_CLEAR_NAME, void.class, Visibility.PUBLIC )
-						.intercept( Advice.to( CodeTemplates.ClearDirtyAttributes.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( EnhancerConstants.TRACKER_SUSPEND_NAME, void.class, Visibility.PUBLIC )
-						.withParameters( boolean.class )
-						.intercept( Advice.to( CodeTemplates.SuspendDirtyTracking.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( EnhancerConstants.TRACKER_COLLECTION_GET_NAME, CollectionTracker.class, Visibility.PUBLIC )
-						.intercept( FieldAccessor.ofField( EnhancerConstants.TRACKER_COLLECTION_NAME ) );
+				if ( collectCollectionFields( managedCtClass ).isEmpty() ) {
+					builder = builder.implement( SelfDirtinessTracker.class )
+							.defineField( EnhancerConstants.TRACKER_FIELD_NAME, DirtyTracker.class, FieldPersistence.TRANSIENT, Visibility.PRIVATE )
+									.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
+							.defineMethod( EnhancerConstants.TRACKER_CHANGER_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( String.class )
+									.intercept( Advice.to( CodeTemplates.TrackChange.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_GET_NAME, String[].class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.GetDirtyAttributesWithoutCollections.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_HAS_CHANGED_NAME, boolean.class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.AreFieldsDirtyWithoutCollections.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_CLEAR_NAME, void.class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.ClearDirtyAttributesWithoutCollections.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_SUSPEND_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( boolean.class )
+									.intercept( Advice.to( CodeTemplates.SuspendDirtyTracking.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_COLLECTION_GET_NAME, CollectionTracker.class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.GetCollectionTrackerWithoutCollections.class ).wrap( StubMethod.INSTANCE ) );
+				}
+				else {
+					builder = builder.implement( ExtendedSelfDirtinessTracker.class )
+							.defineField( EnhancerConstants.TRACKER_FIELD_NAME, DirtyTracker.class, FieldPersistence.TRANSIENT, Visibility.PRIVATE )
+									.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
+							.defineField( EnhancerConstants.TRACKER_COLLECTION_NAME, CollectionTracker.class, FieldPersistence.TRANSIENT, Visibility.PRIVATE )
+									.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
+							.defineMethod( EnhancerConstants.TRACKER_CHANGER_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( String.class )
+									.intercept( Advice.to( CodeTemplates.TrackChange.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_GET_NAME, String[].class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.GetDirtyAttributes.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_HAS_CHANGED_NAME, boolean.class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.AreFieldsDirty.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_CLEAR_NAME, void.class, Visibility.PUBLIC )
+									.intercept( Advice.to( CodeTemplates.ClearDirtyAttributes.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_SUSPEND_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( boolean.class )
+									.intercept( Advice.to( CodeTemplates.SuspendDirtyTracking.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( EnhancerConstants.TRACKER_COLLECTION_GET_NAME, CollectionTracker.class, Visibility.PUBLIC )
+									.intercept( FieldAccessor.ofField( EnhancerConstants.TRACKER_COLLECTION_NAME ) );
 
-				Implementation isDirty = StubMethod.INSTANCE, getDirtyNames = StubMethod.INSTANCE, clearDirtyNames = StubMethod.INSTANCE;
-				for ( FieldDescription collectionField : collectCollectionFields( managedCtClass ) ) {
-					if ( !enhancementContext.isMappedCollection( collectionField ) ) {
+					Implementation isDirty = StubMethod.INSTANCE, getDirtyNames = StubMethod.INSTANCE, clearDirtyNames = StubMethod.INSTANCE;
+					for ( FieldDescription collectionField : collectCollectionFields( managedCtClass ) ) {
 						if ( collectionField.getType().asErasure().isAssignableTo( Map.class ) ) {
 							isDirty = Advice.withCustomMapping()
 									.bind( CodeTemplates.FieldName.class, collectionField.getName() )
@@ -219,22 +238,22 @@ public class EnhancerImpl implements Enhancer {
 									.wrap( clearDirtyNames );
 						}
 					}
-				}
 
-				if ( enhancementContext.hasLazyLoadableAttributes( managedCtClass ) ) {
-					clearDirtyNames = Advice.to( CodeTemplates.InitializeLazyAttributeLoadingInterceptor.class ).wrap( clearDirtyNames );
-				}
+					if ( enhancementContext.hasLazyLoadableAttributes( managedCtClass ) ) {
+						clearDirtyNames = Advice.to( CodeTemplates.InitializeLazyAttributeLoadingInterceptor.class ).wrap( clearDirtyNames );
+					}
 
-				builder = builder.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CHANGED_NAME, boolean.class, Visibility.PUBLIC )
-						.intercept( isDirty )
-						.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CHANGED_FIELD_NAME, void.class, Visibility.PUBLIC )
-						.withParameters( DirtyTracker.class )
-						.intercept( getDirtyNames )
-						.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CLEAR_NAME, void.class, Visibility.PUBLIC )
-						.intercept( Advice.withCustomMapping().to( CodeTemplates.ClearDirtyCollectionNames.class ).wrap( StubMethod.INSTANCE ) )
-						.defineMethod( ExtendedSelfDirtinessTracker.REMOVE_DIRTY_FIELDS_NAME, void.class, Visibility.PUBLIC )
-						.withParameters( LazyAttributeLoadingInterceptor.class )
-						.intercept( clearDirtyNames );
+					builder = builder.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CHANGED_NAME, boolean.class, Visibility.PUBLIC )
+							.intercept( isDirty )
+							.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CHANGED_FIELD_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( DirtyTracker.class )
+									.intercept( getDirtyNames )
+							.defineMethod( EnhancerConstants.TRACKER_COLLECTION_CLEAR_NAME, void.class, Visibility.PUBLIC )
+									.intercept( Advice.withCustomMapping().to( CodeTemplates.ClearDirtyCollectionNames.class ).wrap( StubMethod.INSTANCE ) )
+							.defineMethod( ExtendedSelfDirtinessTracker.REMOVE_DIRTY_FIELDS_NAME, void.class, Visibility.PUBLIC )
+									.withParameters( LazyAttributeLoadingInterceptor.class )
+									.intercept( clearDirtyNames );
+				}
 			}
 
 			return transformer.applyTo( builder, false );
@@ -250,24 +269,24 @@ public class EnhancerImpl implements Enhancer {
 						.defineField(
 								EnhancerConstants.TRACKER_COMPOSITE_FIELD_NAME,
 								CompositeOwnerTracker.class,
-								FieldManifestation.TRANSIENT,
+								FieldPersistence.TRANSIENT,
 								Visibility.PRIVATE
 						)
-						.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
+								.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
 						.defineMethod(
 								EnhancerConstants.TRACKER_COMPOSITE_SET_OWNER,
 								void.class,
 								Visibility.PUBLIC
 						)
-						.withParameters( String.class, CompositeOwner.class )
-						.intercept( Advice.to( CodeTemplates.SetOwner.class ).wrap( StubMethod.INSTANCE ) )
+								.withParameters( String.class, CompositeOwner.class )
+								.intercept( Advice.to( CodeTemplates.SetOwner.class ).wrap( StubMethod.INSTANCE ) )
 						.defineMethod(
 								EnhancerConstants.TRACKER_COMPOSITE_CLEAR_OWNER,
 								void.class,
 								Visibility.PUBLIC
 						)
-						.withParameters( String.class )
-						.intercept( Advice.to( CodeTemplates.ClearOwner.class ).wrap( StubMethod.INSTANCE ) );
+								.withParameters( String.class )
+								.intercept( Advice.to( CodeTemplates.ClearOwner.class ).wrap( StubMethod.INSTANCE ) );
 			}
 
 			return transformer.applyTo( builder, false );
@@ -323,13 +342,14 @@ public class EnhancerImpl implements Enhancer {
 			String fieldName,
 			String getterName,
 			String setterName) {
-		return builder.defineField( fieldName, type, Visibility.PRIVATE, FieldManifestation.TRANSIENT )
-				.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
+		return builder
+				.defineField( fieldName, type, Visibility.PRIVATE, FieldPersistence.TRANSIENT )
+						.annotateField( AnnotationDescription.Builder.ofType( Transient.class ).build() )
 				.defineMethod( getterName, type, Visibility.PUBLIC )
-				.intercept( FieldAccessor.ofField( fieldName ) )
+						.intercept( FieldAccessor.ofField( fieldName ) )
 				.defineMethod( setterName, void.class, Visibility.PUBLIC )
-				.withParameters( type )
-				.intercept( FieldAccessor.ofField( fieldName ) );
+						.withParameters( type )
+						.intercept( FieldAccessor.ofField( fieldName ) );
 	}
 
 	private List<FieldDescription> collectCollectionFields(TypeDescription managedCtClass) {
@@ -340,7 +360,7 @@ public class EnhancerImpl implements Enhancer {
 			if ( Modifier.isStatic( ctField.getModifiers() ) || ctField.getName().startsWith( "$$_hibernate_" ) ) {
 				continue;
 			}
-			if ( enhancementContext.isPersistentField( ctField ) ) {
+			if ( enhancementContext.isPersistentField( ctField ) && !enhancementContext.isMappedCollection( ctField ) ) {
 				if ( ctField.getType().asErasure().isAssignableTo( Collection.class ) || ctField.getType().asErasure().isAssignableTo( Map.class ) ) {
 					collectionList.add( ctField );
 				}
@@ -368,9 +388,11 @@ public class EnhancerImpl implements Enhancer {
 		List<FieldDescription> collectionList = new ArrayList<FieldDescription>();
 
 		for ( FieldDescription ctField : managedCtSuperclass.getDeclaredFields() ) {
-			if ( !Modifier.isStatic( ctField.getModifiers() ) && enhancementContext.isPersistentField( ctField ) ) {
-				if ( ctField.getType().asErasure().isAssignableTo( Collection.class ) || ctField.getType().asErasure().isAssignableTo( Map.class ) ) {
-					collectionList.add( ctField );
+			if ( !Modifier.isStatic( ctField.getModifiers() ) ) {
+				if ( enhancementContext.isPersistentField( ctField ) && !enhancementContext.isMappedCollection( ctField ) ) {
+					if ( ctField.getType().asErasure().isAssignableTo( Collection.class ) || ctField.getType().asErasure().isAssignableTo( Map.class ) ) {
+						collectionList.add( ctField );
+					}
 				}
 			}
 		}
